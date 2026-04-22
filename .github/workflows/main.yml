@@ -1,0 +1,32 @@
+name: Hourly Data Fix
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Proti ghontay run korbe
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests pandas
+
+      - name: Run collector
+        run: python ml_data_collector.py
+
+      - name: Save to Repo
+        run: |
+          git config --global user.name "DataBot"
+          git config --global user.email "bot@github.com"
+          git add app_vs_standard_ml_data.csv
+          git commit -m "Hourly Data Update" || exit 0
+          git push
