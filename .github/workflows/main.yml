@@ -2,8 +2,8 @@ name: Hourly Data Collection
 
 on:
   schedule:
-    - cron: '0 * * * *' # প্রতি ঘণ্টা পরপর রান করবে
-  workflow_dispatch: # ম্যানুয়ালি রান করার অপশন
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   collect-data:
@@ -28,7 +28,7 @@ jobs:
         env:
           AMBEE_API_KEY: ${{ secrets.AMBEE_API_KEY }}
           WEATHER_CHANNEL_API_KEY: ${{ secrets.WEATHER_CHANNEL_API_KEY }}
-        run: python main.py # আপনার পাইথন ফাইলের নাম main.py না হলে সেটি এখানে পরিবর্তন করে দিন
+        run: python main.py
 
       - name: Commit and push changes
         run: |
