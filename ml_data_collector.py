@@ -42,7 +42,7 @@ def fetch_api_data(url, api_name, retries=3, delay=5):
             time.sleep(delay)
     return None
 
-# --- USA AQI Calculation Logic (Exactly matching your HTML JS logic) ---
+# --- USA AQI Calculation Logic ---
 def calculate_sub_index(conc, breakpoints):
     if conc is None or conc < 0:
         return 0
@@ -54,7 +54,6 @@ def calculate_sub_index(conc, breakpoints):
     return 500 if conc > 0 else 0
 
 def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
-    # Added all extreme upper bounds (up to 500/600) exactly like your HTML Array to prevent any fallback error
     pm25_bp = [{'cLow': 0.0, 'cHigh': 12.0, 'iLow': 0, 'iHigh': 50}, {'cLow': 12.1, 'cHigh': 35.4, 'iLow': 51, 'iHigh': 100}, {'cLow': 35.5, 'cHigh': 55.4, 'iLow': 101, 'iHigh': 150}, {'cLow': 55.5, 'cHigh': 150.4, 'iLow': 151, 'iHigh': 200}, {'cLow': 150.5, 'cHigh': 250.4, 'iLow': 201, 'iHigh': 300}, {'cLow': 250.5, 'cHigh': 350.4, 'iLow': 301, 'iHigh': 400}, {'cLow': 350.5, 'cHigh': 500.4, 'iLow': 401, 'iHigh': 500}]
     pm10_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 154, 'iLow': 51, 'iHigh': 100}, {'cLow': 155, 'cHigh': 254, 'iLow': 101, 'iHigh': 150}, {'cLow': 255, 'cHigh': 354, 'iLow': 151, 'iHigh': 200}, {'cLow': 355, 'cHigh': 424, 'iLow': 201, 'iHigh': 300}, {'cLow': 425, 'cHigh': 504, 'iLow': 301, 'iHigh': 400}, {'cLow': 505, 'cHigh': 604, 'iLow': 401, 'iHigh': 500}]
     o3_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 70, 'iLow': 51, 'iHigh': 100}, {'cLow': 71, 'cHigh': 85, 'iLow': 101, 'iHigh': 150}, {'cLow': 86, 'cHigh': 105, 'iLow': 151, 'iHigh': 200}, {'cLow': 106, 'cHigh': 200, 'iLow': 201, 'iHigh': 300}, {'cLow': 201, 'cHigh': 400, 'iLow': 301, 'iHigh': 400}, {'cLow': 401, 'cHigh': 600, 'iLow': 401, 'iHigh': 500}]
@@ -62,7 +61,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
     so2_bp = [{'cLow': 0, 'cHigh': 35, 'iLow': 0, 'iHigh': 50}, {'cLow': 36, 'cHigh': 75, 'iLow': 51, 'iHigh': 100}, {'cLow': 76, 'cHigh': 185, 'iLow': 101, 'iHigh': 150}, {'cLow': 186, 'cHigh': 304, 'iLow': 151, 'iHigh': 200}, {'cLow': 305, 'cHigh': 604, 'iLow': 201, 'iHigh': 300}, {'cLow': 605, 'cHigh': 804, 'iLow': 301, 'iHigh': 400}, {'cLow': 805, 'cHigh': 1004, 'iLow': 401, 'iHigh': 500}]
     co_bp = [{'cLow': 0.0, 'cHigh': 4.4, 'iLow': 0, 'iHigh': 50}, {'cLow': 4.5, 'cHigh': 9.4, 'iLow': 51, 'iHigh': 100}, {'cLow': 9.5, 'cHigh': 12.4, 'iLow': 101, 'iHigh': 150}, {'cLow': 12.5, 'cHigh': 15.4, 'iLow': 151, 'iHigh': 200}, {'cLow': 15.5, 'cHigh': 30.4, 'iLow': 201, 'iHigh': 300}, {'cLow': 30.5, 'cHigh': 40.4, 'iLow': 301, 'iHigh': 400}, {'cLow': 40.5, 'cHigh': 50.4, 'iLow': 401, 'iHigh': 500}]
 
-    # Replicating JavaScript's Math.round() to completely fix the GAP BUG
     def js_round(val, decimals=0):
         if val is None: return 0
         factor = 10 ** decimals
@@ -79,8 +77,11 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
     return max(indices)
 
 def get_open_meteo_data(lat, lon):
-    w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
-    a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
+    # Lock coordinates to 4 decimal places for precision matching
+    lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
+    
+    w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat_str}&longitude={lon_str}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
+    a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat_str}&longitude={lon_str}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
     
     w_data = fetch_api_data(w_url, "Open-Meteo (Weather)")
     a_data = fetch_api_data(a_url, "Open-Meteo (AQI)")
@@ -124,43 +125,68 @@ def get_open_meteo_data(lat, lon):
     }
 
 def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
-    pollutants = gaq_data.get('pollutants')
+    """Smart extractor that ignores case sensitivity and structure variations"""
+    pollutants = gaq_data.get('pollutants', {})
+    if not pollutants:
+        return None
+
+    target_key = key_name.lower()
+    p = None
+    
+    # Case-insensitive search in Dictionary
+    if isinstance(pollutants, dict):
+        for k, v in pollutants.items():
+            if k.lower() == target_key:
+                p = v
+                break
+    # Case-insensitive search in List
+    elif isinstance(pollutants, list):
+        for item in pollutants:
+            if str(item.get('name', '')).lower() == target_key or str(item.get('id', '')).lower() == target_key:
+                p = item
+                break
+
     amt = None
     unit = ""
 
-    if isinstance(pollutants, dict):
-        p = pollutants.get(key_name, {})
-        if isinstance(p, dict):
-            amt = p.get('amount')
-            unit = str(p.get('unit', '')).upper()
-        else:
-            amt = p
-    elif isinstance(pollutants, list):
-        for p in pollutants:
-            if str(p.get('name', '')).lower() == key_name:
-                amt = p.get('amount')
-                unit = str(p.get('unit', '')).upper()
-                break
+    if isinstance(p, dict):
+        amt = p.get('amount')
+        unit = str(p.get('unit', '')).upper()
+    elif p is not None:
+        amt = p
 
+    # Direct fallback if still not found
     if amt is None:
-        amt = gaq_data.get(key_name)
+        for k, v in gaq_data.items():
+            if k.lower() == target_key:
+                amt = v
+                break
 
     if amt is None:
         return None
 
-    if unit in ['UGM3', 'UG/M3'] and factor != 1.0:
-        amt = float(amt) / factor
+    try:
+        amt = float(amt)
+    except (ValueError, TypeError):
+        return None
+
+    # Conversion logic for standardization
+    if unit in ['UGM3', 'UG/M3', 'µG/M3'] and factor != 1.0:
+        amt = amt / factor
 
     return amt
 
 def get_std_data(lat, lon):
+    # Lock coordinates to 4 decimal places for precision matching
+    lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
+    
     results = {
         "WC_Temp_C": None, "WC_Humidity_%": None, "WC_Pressure_hPa": None,
         "WC_AQI_(USA)": None, "WC_PM2.5_(µg/m3)": None, "WC_PM10_(µg/m3)": None,
         "WC_O3_(ppb)": None, "WC_NO2_(ppb)": None, "WC_SO2_(ppb)": None, "WC_CO_(ppm)": None
     }
     
-    wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
+    wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat_str},{lon_str}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
     wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)")
     
     if wx_data:
@@ -171,7 +197,7 @@ def get_std_data(lat, lon):
         })
         print(f"    ✓ Weather Channel (Wx): OK")
 
-    aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat},{lon}&format=json&language=en-US&scale=EPA&apiKey={WEATHER_CHANNEL_API_KEY}"
+    aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat_str},{lon_str}&format=json&language=en-US&scale=EPA&apiKey={WEATHER_CHANNEL_API_KEY}"
     aqi_data = fetch_api_data(aqi_url, "Weather Channel (AQI)")
     
     if aqi_data and 'globalairquality' in aqi_data:
@@ -186,12 +212,14 @@ def get_std_data(lat, lon):
             "WC_SO2_(ppb)": safe_round(extract_twc_pollutant(gaq, 'so2', 2.62)),
             "WC_CO_(ppm)": safe_round(extract_twc_pollutant(gaq, 'co', 1145))
         })
-        print(f"    ✓ Weather Channel (AQI): OK")
-    
+        print(f"    ✓ Weather Channel (AQI): Extracted Pollutants Successfully")
+    else:
+        print(f"    ⚠ Weather Channel (AQI): Missing 'globalairquality' data object")
+        
     return results
 
 def collect():
-    # 🕒 Set EXACT Bangladesh Timezone (UTC + 6)
+    # 🕒 Exact BD Time
     bd_timezone = timezone(timedelta(hours=6))
     now_obj = datetime.now(bd_timezone)
     
@@ -220,7 +248,6 @@ def collect():
     df = pd.DataFrame(final_rows)
     file = "app_vs_standard_ml_data.csv"
     
-    # Safe Save & Append Logic
     if not os.path.isfile(file):
         df.to_csv(file, index=False)
         print(f"✅ New CSV file created: {file}")
