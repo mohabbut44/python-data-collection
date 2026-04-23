@@ -28,6 +28,21 @@ def safe_round(val, digits=2):
     except (ValueError, TypeError):
         return None
 
+def fetch_api_data(url, api_name, retries=3, delay=5):
+    """Fetch data with retry logic to bypass temporary blocks/rate limits"""
+    for attempt in range(1, retries + 1):
+        try:
+            res = requests.get(url, timeout=15)
+            if res.status_code == 200:
+                return res.json()
+            else:
+                print(f"      ⚠ {api_name} API Error (Status {res.status_code}). Retrying {attempt}/{retries} in {delay}s...")
+                time.sleep(delay)
+        except requests.exceptions.RequestException as e:
+            print(f"      ⚠ {api_name} Network Error. Retrying {attempt}/{retries} in {delay}s...")
+            time.sleep(delay)
+    return None
+
 # --- USA AQI Calculation Logic (For Open-Meteo) ---
 def calculate_sub_index(conc, breakpoints):
     if conc is None or conc < 0:
@@ -59,46 +74,46 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
 
 def get_open_meteo_data(lat, lon):
     """Fetch data from Open-Meteo API"""
-    try:
-        w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
-        a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
-        
-        w_res = requests.get(w_url, timeout=15).json().get('current', {})
-        a_res = requests.get(a_url, timeout=15).json().get('current', {})
-        
-        o3 = a_res.get('ozone')
-        no2 = a_res.get('nitrogen_dioxide')
-        so2 = a_res.get('sulphur_dioxide')
-        co = a_res.get('carbon_monoxide')
-        pm10 = a_res.get('pm10')
-        pm2_5 = a_res.get('pm2_5')
-        
-        o3_ppb = (o3 / 1.96) if o3 is not None else 0
-        no2_ppb = (no2 / 1.88) if no2 is not None else 0
-        so2_ppb = (so2 / 2.62) if so2 is not None else 0
-        co_ppm = (co / 1145) if co is not None else 0
-        
-        calc_aqi = calculate_usa_aqi(
-            pm2_5 if pm2_5 is not None else 0, 
-            pm10 if pm10 is not None else 0, 
-            o3_ppb, no2_ppb, so2_ppb, co_ppm
-        )
+    w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
+    a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
+    
+    # Using the new retry logic
+    w_data = fetch_api_data(w_url, "Open-Meteo (Weather)")
+    a_data = fetch_api_data(a_url, "Open-Meteo (AQI)")
+    
+    w_res = w_data.get('current', {}) if w_data else {}
+    a_res = a_data.get('current', {}) if a_data else {}
+    
+    o3 = a_res.get('ozone')
+    no2 = a_res.get('nitrogen_dioxide')
+    so2 = a_res.get('sulphur_dioxide')
+    co = a_res.get('carbon_monoxide')
+    pm10 = a_res.get('pm10')
+    pm2_5 = a_res.get('pm2_5')
+    
+    o3_ppb = (o3 / 1.96) if o3 is not None else 0
+    no2_ppb = (no2 / 1.88) if no2 is not None else 0
+    so2_ppb = (so2 / 2.62) if so2 is not None else 0
+    co_ppm = (co / 1145) if co is not None else 0
+    
+    calc_aqi = calculate_usa_aqi(
+        pm2_5 if pm2_5 is not None else 0, 
+        pm10 if pm10 is not None else 0, 
+        o3_ppb, no2_ppb, so2_ppb, co_ppm
+    )
 
-        return {
-            "app_temp": safe_round(w_res.get('temperature_2m')),
-            "app_humidity": safe_round(w_res.get('relative_humidity_2m')),
-            "app_pressure": safe_round(w_res.get('surface_pressure')),
-            "app_uv": safe_round(w_res.get('uv_index')),
-            "app_aqi": calc_aqi,
-            "app_pm10": safe_round(pm10),
-            "app_pm2_5": safe_round(pm2_5)
-        }
-    except Exception as e:
-        print(f"  ⚠ OpenMeteo Error: {e}")
-        return {
-            "app_temp": None, "app_humidity": None, "app_pressure": None,
-            "app_uv": None, "app_aqi": None, "app_pm10": None, "app_pm2_5": None
-        }
+    if w_data and a_data:
+        print(f"    ✓ Open-Meteo: OK")
+
+    return {
+        "app_temp": safe_round(w_res.get('temperature_2m')),
+        "app_humidity": safe_round(w_res.get('relative_humidity_2m')),
+        "app_pressure": safe_round(w_res.get('surface_pressure')),
+        "app_uv": safe_round(w_res.get('uv_index')),
+        "app_aqi": calc_aqi,
+        "app_pm10": safe_round(pm10),
+        "app_pm2_5": safe_round(pm2_5)
+    }
 
 def get_std_data(lat, lon):
     """Fetch data from Standard APIs (Only Weather Channel)"""
@@ -112,43 +127,30 @@ def get_std_data(lat, lon):
     }
     
     # 1. Weather Channel: Current Observations (Temp, Humidity, Pressure)
-    try:
-        wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
-        wx_res = requests.get(wx_url, timeout=15)
-        if wx_res.status_code == 200:
-            wx = wx_res.json()
-            results.update({
-                "std_temp": safe_round(wx.get('temperature')),
-                "std_humidity": safe_round(wx.get('relativeHumidity')),
-                "std_pressure": safe_round(wx.get('pressureMeanSeaLevel'))
-            })
-            print(f"    ✓ Weather Channel (Wx): OK")
-        else:
-            print(f"    ⚠ Weather Channel (Wx): Status {wx_res.status_code}")
-    except Exception as e:
-        print(f"    ⚠ Weather Channel (Wx) Error: {e}")
+    wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
+    wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)")
+    
+    if wx_data:
+        results.update({
+            "std_temp": safe_round(wx_data.get('temperature')),
+            "std_humidity": safe_round(wx_data.get('relativeHumidity')),
+            "std_pressure": safe_round(wx_data.get('pressureMeanSeaLevel'))
+        })
+        print(f"    ✓ Weather Channel (Wx): OK")
 
     # 2. Weather Channel: Air Quality (AQI, PM2.5, PM10)
-    try:
-        aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat},{lon}&format=json&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
-        aqi_res = requests.get(aqi_url, timeout=15)
-        if aqi_res.status_code == 200:
-            aqi_data = aqi_res.json()
-            # The Weather Channel provides a globalAQI object containing pollutant details
-            if 'globalairquality' in aqi_data:
-                gaq = aqi_data['globalairquality']
-                results.update({
-                    "std_aqi": safe_round(gaq.get('airQualityIndex')),
-                    "std_pm10": safe_round(gaq.get('pm10')),
-                    "std_pm2_5": safe_round(gaq.get('pm25'))
-                })
-                print(f"    ✓ Weather Channel (AQI): OK")
-            else:
-                print(f"    ⚠ Weather Channel (AQI): Data structure unexpected.")
-        else:
-            print(f"    ⚠ Weather Channel (AQI): Status {aqi_res.status_code}")
-    except Exception as e:
-        print(f"    ⚠ Weather Channel (AQI) Error: {e}")
+    aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat},{lon}&format=json&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
+    aqi_data = fetch_api_data(aqi_url, "Weather Channel (AQI)")
+    
+    if aqi_data and 'globalairquality' in aqi_data:
+        gaq = aqi_data['globalairquality']
+        if isinstance(gaq, dict):
+            results.update({
+                "std_aqi": safe_round(gaq.get('airQualityIndex')),
+                "std_pm10": safe_round(gaq.get('pm10')),
+                "std_pm2_5": safe_round(gaq.get('pm25'))
+            })
+            print(f"    ✓ Weather Channel (AQI): OK")
     
     return results
 
@@ -166,17 +168,16 @@ def collect():
         
         row = {"Timestamp": now, "Division": city}
         
-        print(f"  → Fetching OpenMeteo...")
         row.update(get_open_meteo_data(coord['lat'], coord['lon']))
-        
-        print(f"  → Fetching Standard APIs...")
         row.update(get_std_data(coord['lat'], coord['lon']))
         
         final_rows.append(row)
         print(f"  ✓ {city} Complete\n")
         
+        # Rate Limiting Protection: 5 সেকেন্ডের ডিলে
         if idx < 8:
-            time.sleep(2)
+            print("  ⏳ Waiting 5 seconds before next city to avoid rate limits...")
+            time.sleep(5)
 
     df = pd.DataFrame(final_rows)
     file = "app_vs_standard_ml_data.csv"
