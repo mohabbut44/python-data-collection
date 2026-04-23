@@ -4,9 +4,9 @@ from datetime import datetime
 import os
 import time
 
-# API Keys
-AMBEE_API_KEY = "041abfe46b41ab94f68238e447ee1b87f9198d02c7109b1a310d908791b29d39"
-WEATHER_CHANNEL_API_KEY = "7bfe01b2027b4094be01b2027b709468"
+# API Keys (এগুলো এখন GitHub Secrets থেকে আসবে)
+AMBEE_API_KEY = os.getenv("AMBEE_API_KEY")
+WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY")
 
 divisions = {
     "Dhaka": {"lat": 23.8103, "lon": 90.4125},
@@ -28,8 +28,7 @@ def calculate_sub_index(conc, breakpoints):
     for bp in breakpoints:
         if conc >= bp['cLow'] and conc <= bp['cHigh']:
             return round(
-                ((bp['iHigh'] - bp['iLow']) / (bp['cHigh'] - bp['cLow'])) * 
-                (conc - bp['cLow']) + bp['iLow']
+                ((bp['iHigh'] - bp['iLow']) / (bp['cHigh'] - bp['cLow'])) * (conc - bp['cLow']) + bp['iLow']
             )
     
     return 500 if conc > 0 else 0
@@ -37,7 +36,6 @@ def calculate_sub_index(conc, breakpoints):
 def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
     """Calculate USA AQI from pollutant concentrations"""
     
-    # PM2.5 Breakpoints (µg/m³)
     pm25_bp = [
         {'cLow': 0.0, 'cHigh': 12.0, 'iLow': 0, 'iHigh': 50},
         {'cLow': 12.1, 'cHigh': 35.4, 'iLow': 51, 'iHigh': 100},
@@ -48,7 +46,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
         {'cLow': 350.5, 'cHigh': 500.4, 'iLow': 401, 'iHigh': 500}
     ]
     
-    # PM10 Breakpoints (µg/m³)
     pm10_bp = [
         {'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50},
         {'cLow': 55, 'cHigh': 154, 'iLow': 51, 'iHigh': 100},
@@ -59,7 +56,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
         {'cLow': 505, 'cHigh': 604, 'iLow': 401, 'iHigh': 500}
     ]
     
-    # O3 Breakpoints (ppb)
     o3_bp = [
         {'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50},
         {'cLow': 55, 'cHigh': 70, 'iLow': 51, 'iHigh': 100},
@@ -68,7 +64,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
         {'cLow': 106, 'cHigh': 200, 'iLow': 201, 'iHigh': 300}
     ]
     
-    # NO2 Breakpoints (ppb)
     no2_bp = [
         {'cLow': 0, 'cHigh': 53, 'iLow': 0, 'iHigh': 50},
         {'cLow': 54, 'cHigh': 100, 'iLow': 51, 'iHigh': 100},
@@ -76,7 +71,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
         {'cLow': 361, 'cHigh': 649, 'iLow': 151, 'iHigh': 200}
     ]
     
-    # SO2 Breakpoints (ppb)
     so2_bp = [
         {'cLow': 0, 'cHigh': 35, 'iLow': 0, 'iHigh': 50},
         {'cLow': 36, 'cHigh': 75, 'iLow': 51, 'iHigh': 100},
@@ -84,7 +78,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
         {'cLow': 186, 'cHigh': 304, 'iLow': 151, 'iHigh': 200}
     ]
     
-    # CO Breakpoints (ppm)
     co_bp = [
         {'cLow': 0.0, 'cHigh': 4.4, 'iLow': 0, 'iHigh': 50},
         {'cLow': 4.5, 'cHigh': 9.4, 'iLow': 51, 'iHigh': 100},
@@ -104,25 +97,19 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
     return max(indices)
 
 def get_open_meteo_data(lat, lon):
-    """Fetch data from Open-Meteo API (Free, Reliable)"""
+    """Fetch data from Open-Meteo API"""
     try:
-        # Weather Data
         w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
-        
-        # Air Quality Data
         a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
         
-        # Fetch with timeout
         w_res = requests.get(w_url, timeout=15).json()['current']
         a_res = requests.get(a_url, timeout=15).json()['current']
         
-        # Unit conversions for AQI calculation
         o3_ppb = a_res['ozone'] / 1.96 if a_res.get('ozone') else 0
         no2_ppb = a_res['nitrogen_dioxide'] / 1.88 if a_res.get('nitrogen_dioxide') else 0
         so2_ppb = a_res['sulphur_dioxide'] / 2.62 if a_res.get('sulphur_dioxide') else 0
         co_ppm = a_res['carbon_monoxide'] / 1145 if a_res.get('carbon_monoxide') else 0
         
-        # Calculate AQI
         calc_aqi = calculate_usa_aqi(
             a_res['pm2_5'], 
             a_res['pm10'], 
@@ -161,7 +148,7 @@ def get_std_data(lat, lon):
     
     try:
         # ===== Weather Channel API =====
-        wc_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&apiKey={WEATHER_CHANNEL_API_KEY}"
+        wc_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
         
         try:
             wc_res = requests.get(wc_url, timeout=15)
@@ -174,9 +161,7 @@ def get_std_data(lat, lon):
                 })
                 print(f"    ✓ Weather Channel: OK")
             else:
-                print(f"    ⚠ Weather Channel: Status {wc_res.status_code}")
-        except requests.Timeout:
-            print(f"    ⚠ Weather Channel: Timeout")
+                print(f"    ⚠ Weather Channel: Status {wc_res.status_code} - {wc_res.text}")
         except Exception as e:
             print(f"    ⚠ Weather Channel Error: {e}")
         
@@ -191,8 +176,9 @@ def get_std_data(lat, lon):
             amb_res = requests.get(amb_url, headers=headers, timeout=15)
             if amb_res.status_code == 200:
                 amb = amb_res.json()
-                if amb.get('data') and len(amb['data']) > 0:
-                    aqi_data = amb['data'][0]
+                data_list = amb.get('data') or amb.get('stations')
+                if data_list and len(data_list) > 0:
+                    aqi_data = data_list[0]
                     results.update({
                         "std_aqi": aqi_data.get('AQI'),
                         "std_pm10": round(aqi_data.get('PM10'), 2) if aqi_data.get('PM10') else None,
@@ -200,11 +186,9 @@ def get_std_data(lat, lon):
                     })
                     print(f"    ✓ Ambee: OK")
                 else:
-                    print(f"    ⚠ Ambee: No data in response")
+                    print(f"    ⚠ Ambee: No data array in response.")
             else:
-                print(f"    ⚠ Ambee: Status {amb_res.status_code}")
-        except requests.Timeout:
-            print(f"    ⚠ Ambee: Timeout")
+                print(f"    ⚠ Ambee: Status {amb_res.status_code} - {amb_res.text}")
         except Exception as e:
             print(f"    ⚠ Ambee Error: {e}")
     
@@ -224,51 +208,37 @@ def collect():
     
     for idx, (city, coord) in enumerate(divisions.items(), 1):
         print(f"[{idx}/8] Processing {city}...")
-        print(f"  Coordinates: {coord['lat']}, {coord['lon']}")
         
         row = {"Timestamp": now, "Division": city}
         
-        # Fetch App Data (Open-Meteo)
         print(f"  → Fetching OpenMeteo...")
         row.update(get_open_meteo_data(coord['lat'], coord['lon']))
         
-        # Fetch Standard Data
         print(f"  → Fetching Standard APIs...")
         row.update(get_std_data(coord['lat'], coord['lon']))
         
         final_rows.append(row)
         print(f"  ✓ {city} Complete\n")
         
-        # Rate limiting
         if idx < 8:
             time.sleep(2)
 
-    # Create DataFrame
     df = pd.DataFrame(final_rows)
     
-    # Display collected data
-    print(f"{'='*60}")
-    print("📊 Collected Data Preview:")
-    print(f"{'='*60}")
-    print(df.to_string())
-    print(f"\n✓ Total rows collected: {len(df)}")
-    
-    # Save to CSV
     file = "app_vs_standard_ml_data.csv"
     
     if not os.path.isfile(file):
         df.to_csv(file, index=False)
-        print(f"\n✅ New file created: {file}")
+        print(f"✅ New file created: {file}")
     else:
         df.to_csv(file, mode='a', header=False, index=False)
-        print(f"\n✅ Data appended to: {file}")
+        print(f"✅ Data appended to: {file}")
     
     print(f"{'='*60}\n")
 
 if __name__ == "__main__":
+    print("🚀 Starting single collection run via GitHub Actions...")
     try:
         collect()
-    except KeyboardInterrupt:
-        print("\n❌ Collection interrupted by user")
     except Exception as e:
         print(f"\n❌ Fatal Error: {e}")
