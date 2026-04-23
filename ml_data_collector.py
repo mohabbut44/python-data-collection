@@ -4,6 +4,10 @@ from datetime import datetime
 import os
 import time
 
+# Excel formatting libraries
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Font, Alignment
+
 # API Keys (GitHub Secrets থেকে আসবে)
 WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY", "")
 
@@ -20,7 +24,6 @@ divisions = {
 
 # --- Error Handling Helper ---
 def safe_round(val, digits=2):
-    """Safely round a value that might be missing (None)."""
     if val is None:
         return None
     try:
@@ -29,7 +32,6 @@ def safe_round(val, digits=2):
         return None
 
 def fetch_api_data(url, api_name, retries=3, delay=5):
-    """Fetch data with retry logic to bypass temporary blocks/rate limits"""
     for attempt in range(1, retries + 1):
         try:
             res = requests.get(url, timeout=15)
@@ -43,7 +45,7 @@ def fetch_api_data(url, api_name, retries=3, delay=5):
             time.sleep(delay)
     return None
 
-# --- USA AQI Calculation Logic (Exactly like your HTML App) ---
+# --- USA AQI Calculation Logic ---
 def calculate_sub_index(conc, breakpoints):
     if conc is None or conc < 0:
         return 0
@@ -73,7 +75,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
     return max(indices)
 
 def get_open_meteo_data(lat, lon):
-    """Fetch and calculate all individual pollutants from Open-Meteo"""
     w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
     a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
     
@@ -83,7 +84,6 @@ def get_open_meteo_data(lat, lon):
     w_res = w_data.get('current', {}) if w_data else {}
     a_res = a_data.get('current', {}) if a_data else {}
     
-    # Get raw values
     o3 = a_res.get('ozone')
     no2 = a_res.get('nitrogen_dioxide')
     so2 = a_res.get('sulphur_dioxide')
@@ -91,7 +91,6 @@ def get_open_meteo_data(lat, lon):
     pm10 = a_res.get('pm10')
     pm2_5 = a_res.get('pm2_5')
     
-    # Convert to USA standard units
     o3_ppb = (o3 / 1.96) if o3 is not None else 0
     no2_ppb = (no2 / 1.88) if no2 is not None else 0
     so2_ppb = (so2 / 2.62) if so2 is not None else 0
@@ -106,7 +105,6 @@ def get_open_meteo_data(lat, lon):
     if w_data and a_data:
         print(f"    ✓ Open-Meteo: OK")
 
-    # Beautifully arranged columns
     return {
         "OM_Temp_C": safe_round(w_res.get('temperature_2m')),
         "OM_Humidity_%": safe_round(w_res.get('relative_humidity_2m')),
@@ -122,21 +120,12 @@ def get_open_meteo_data(lat, lon):
     }
 
 def get_std_data(lat, lon):
-    """Fetch data and all available pollutants from Weather Channel"""
     results = {
-        "WC_Temp_C": None, 
-        "WC_Humidity_%": None, 
-        "WC_Pressure_hPa": None,
-        "WC_AQI_(USA)": None, 
-        "WC_PM2.5_(µg/m3)": None, 
-        "WC_PM10_(µg/m3)": None,
-        "WC_O3_(ppb)": None,
-        "WC_NO2_(ppb)": None,
-        "WC_SO2_(ppb)": None,
-        "WC_CO_(ppm)": None
+        "WC_Temp_C": None, "WC_Humidity_%": None, "WC_Pressure_hPa": None,
+        "WC_AQI_(USA)": None, "WC_PM2.5_(µg/m3)": None, "WC_PM10_(µg/m3)": None,
+        "WC_O3_(ppb)": None, "WC_NO2_(ppb)": None, "WC_SO2_(ppb)": None, "WC_CO_(ppm)": None
     }
     
-    # 1. Weather Channel: Current Observations
     wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
     wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)")
     
@@ -148,7 +137,6 @@ def get_std_data(lat, lon):
         })
         print(f"    ✓ Weather Channel (Wx): OK")
 
-    # 2. Weather Channel: Air Quality (All Pollutants)
     aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat},{lon}&format=json&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
     aqi_data = fetch_api_data(aqi_url, "Weather Channel (AQI)")
     
@@ -168,8 +156,58 @@ def get_std_data(lat, lon):
     
     return results
 
+def format_excel_file(file_path):
+    """Applies beautiful styling to the Excel file"""
+    try:
+        wb = load_workbook(file_path)
+        ws = wb.active
+
+        # 1. Header Styling (Blue background, White Bold text)
+        header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # 2. Adjust Column Widths
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            ws.column_dimensions[column].width = adjusted_width
+
+        # 3. Alternate Row Colors based on Date
+        color1 = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        color2 = PatternFill(start_color="E9EDF4", end_color="E9EDF4", fill_type="solid") # Light blue-gray
+        
+        current_date = None
+        color_toggle = False
+
+        for row in ws.iter_rows(min_row=2):
+            date_val = row[0].value # Column A is Date
+            if date_val != current_date:
+                current_date = date_val
+                color_toggle = not color_toggle
+            
+            fill_color = color1 if color_toggle else color2
+            for cell in row:
+                cell.fill = fill_color
+                cell.alignment = Alignment(horizontal="center")
+
+        wb.save(file_path)
+        print("    ✨ Excel file successfully formatted and colored!")
+    except Exception as e:
+        print(f"    ⚠ Could not apply Excel formatting: {e}")
+
 def collect():
-    """Main collection function"""
     now_obj = datetime.now()
     date_str = now_obj.strftime("%Y-%m-%d")
     time_str = now_obj.strftime("%H:%M:%S")
@@ -183,9 +221,7 @@ def collect():
     for idx, (city, coord) in enumerate(divisions.items(), 1):
         print(f"[{idx}/8] Processing {city}...")
         
-        # Splitting Date and Time for better Excel filtering
         row = {"Date": date_str, "Time": time_str, "Division": city}
-        
         row.update(get_open_meteo_data(coord['lat'], coord['lon']))
         row.update(get_std_data(coord['lat'], coord['lon']))
         
@@ -193,19 +229,23 @@ def collect():
         print(f"  ✓ {city} Complete\n")
         
         if idx < 8:
-            print("  ⏳ Waiting 5 seconds to avoid API blocks...")
             time.sleep(5)
 
     df = pd.DataFrame(final_rows)
-    file = "app_vs_standard_ml_data.csv"
+    file = "app_vs_standard_ml_data.xlsx"
     
+    # Safe Save & Append Logic for Excel
     if not os.path.isfile(file):
-        df.to_csv(file, index=False)
-        print(f"✅ New CSV file created: {file}")
+        df.to_excel(file, index=False, engine='openpyxl')
+        print(f"✅ New Excel file created: {file}")
     else:
-        df.to_csv(file, mode='a', header=False, index=False)
-        print(f"✅ Data safely appended to CSV: {file}")
+        existing_df = pd.read_excel(file, engine='openpyxl')
+        combined_df = pd.concat([existing_df, df], ignore_index=True)
+        combined_df.to_excel(file, index=False, engine='openpyxl')
+        print(f"✅ Data safely appended to Excel: {file}")
     
+    # Apply styling
+    format_excel_file(file)
     print(f"{'='*60}\n")
 
 if __name__ == "__main__":
