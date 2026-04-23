@@ -173,7 +173,7 @@ def get_std_data(lat, lon):
     lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
     
     results = {
-        "WC_Temp_C": None, "WC_Humidity_%": None, "WC_Pressure_hPa": None,
+        "WC_Temp_C": None, "WC_Humidity_%": None, "WC_Pressure_hPa": None, "WC_UV_Index": None,
         "WC_AQI_(USA)": None, "WC_PM2.5_(µg/m3)": None, "WC_PM10_(µg/m3)": None,
         "WC_O3_(ppb)": None, "WC_NO2_(ppb)": None, "WC_SO2_(ppb)": None, "WC_CO_(ppm)": None
     }
@@ -187,7 +187,8 @@ def get_std_data(lat, lon):
         results.update({
             "WC_Temp_C": safe_round(wx_data.get('temperature')),
             "WC_Humidity_%": safe_round(wx_data.get('relativeHumidity')),
-            "WC_Pressure_hPa": safe_round(wx_data.get('pressureMeanSeaLevel'))
+            "WC_Pressure_hPa": safe_round(wx_data.get('pressureMeanSeaLevel')),
+            "WC_UV_Index": safe_round(wx_data.get('uvIndex'))
         })
         print(f"    ✓ Weather Channel (Wx): OK")
 
