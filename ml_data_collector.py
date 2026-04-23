@@ -36,15 +36,15 @@ def fetch_api_data(url, api_name, retries=5, delay=5, headers=None):
             if res.status_code == 200:
                 return res.json()
             elif res.status_code == 429:
-                # Exponential backoff for rate limiting
                 wait_time = delay * attempt * 2 
                 print(f"      ⚠ {api_name} Rate Limited (429). Waiting {wait_time}s before retry {attempt}/{retries}...")
                 time.sleep(wait_time)
             else:
-                print(f"      ⚠ {api_name} API Error (Status {res.status_code}). Retrying {attempt}/{retries} in {delay}s...")
+                # 🛠 Added res.text so you can see exact error from Ambee in Github Actions logs
+                print(f"      ⚠ {api_name} API Error (Status {res.status_code}): {res.text}. Retrying {attempt}/{retries} in {delay}s...")
                 time.sleep(delay)
         except requests.exceptions.RequestException as e:
-            print(f"      ⚠ {api_name} Network Error. Retrying {attempt}/{retries} in {delay}s...")
+            print(f"      ⚠ {api_name} Network Error: {e}. Retrying {attempt}/{retries} in {delay}s...")
             time.sleep(delay)
     return None
 
@@ -87,9 +87,7 @@ def get_open_meteo_data(lat, lon):
     a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat_str}&longitude={lon_str}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
     
     w_data = fetch_api_data(w_url, "Open-Meteo (Weather)", retries=5, delay=5)
-    
-    time.sleep(2)  # Pause to avoid OM rate limiting
-    
+    time.sleep(2)  
     a_data = fetch_api_data(a_url, "Open-Meteo (AQI)", retries=5, delay=5)
     
     w_res = w_data.get('current', {}) if w_data else {}
@@ -130,6 +128,13 @@ def get_open_meteo_data(lat, lon):
         "OM_CO_(ppm)": safe_round(co_ppm)
     }
 
+# 🛠 Helper function to safely extract keys from Ambee response regardless of naming
+def get_ambee_val(obj, possible_keys):
+    for k in possible_keys:
+        if k in obj and obj[k] is not None:
+            return obj[k]
+    return None
+
 def get_std_data(lat, lon):
     lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
     
@@ -142,8 +147,7 @@ def get_std_data(lat, lon):
     # 1. Weather Channel (Weather Data Only)
     wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat_str},{lon_str}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
     wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)", retries=5, delay=5)
-    
-    time.sleep(1) # Small pause just to be safe
+    time.sleep(1) 
     
     if wx_data:
         results.update({
@@ -161,23 +165,38 @@ def get_std_data(lat, lon):
         "Content-type": "application/json"
     }
     
-    ambee_data = fetch_api_data(ambee_url, "Ambee (AQI)", retries=5, delay=5, headers=ambee_headers)
+    ambee_data = fetch_api_data(ambee_url, "Ambee (AQI)", retries=3, delay=5, headers=ambee_headers)
     
-    if ambee_data and 'data' in ambee_data and len(ambee_data['data']) > 0:
-        aqi_info = ambee_data['data'][0]
+    if ambee_data:
+        # Check if data is inside 'data' or 'stations' array
+        aqi_source = ambee_data.get('data') or ambee_data.get('stations')
         
-        results.update({
-            "Ambee_AQI_(USA)": safe_round(aqi_info.get('AQI')),
-            "Ambee_PM2.5": safe_round(aqi_info.get('PM25') or aqi_info.get('pm25')),
-            "Ambee_PM10": safe_round(aqi_info.get('PM10') or aqi_info.get('pm10')),
-            "Ambee_O3": safe_round(aqi_info.get('OZONE') or aqi_info.get('O3') or aqi_info.get('o3')),
-            "Ambee_NO2": safe_round(aqi_info.get('NO2') or aqi_info.get('no2')),
-            "Ambee_SO2": safe_round(aqi_info.get('SO2') or aqi_info.get('so2')),
-            "Ambee_CO": safe_round(aqi_info.get('CO') or aqi_info.get('co'))
-        })
-        print(f"    ✓ Ambee (AQI): Extracted Pollutants Successfully")
+        if aqi_source:
+            # Handle both list and object responses
+            if isinstance(aqi_source, list) and len(aqi_source) > 0:
+                aqi_info = aqi_source[0]
+            elif isinstance(aqi_source, dict):
+                aqi_info = aqi_source
+            else:
+                aqi_info = None
+                
+            if aqi_info:
+                results.update({
+                    "Ambee_AQI_(USA)": safe_round(get_ambee_val(aqi_info, ['AQI', 'aqi', 'airQualityIndex'])),
+                    "Ambee_PM2.5": safe_round(get_ambee_val(aqi_info, ['PM25', 'pm25', 'PM2.5', 'pm2.5'])),
+                    "Ambee_PM10": safe_round(get_ambee_val(aqi_info, ['PM10', 'pm10'])),
+                    "Ambee_O3": safe_round(get_ambee_val(aqi_info, ['OZONE', 'O3', 'ozone', 'o3'])),
+                    "Ambee_NO2": safe_round(get_ambee_val(aqi_info, ['NO2', 'no2'])),
+                    "Ambee_SO2": safe_round(get_ambee_val(aqi_info, ['SO2', 'so2'])),
+                    "Ambee_CO": safe_round(get_ambee_val(aqi_info, ['CO', 'co']))
+                })
+                print(f"    ✓ Ambee (AQI): Extracted Pollutants Successfully")
+            else:
+                print(f"    ⚠ Ambee (AQI): Data array is empty.")
+        else:
+            print(f"    ⚠ Ambee (AQI): Missing 'data' object. Keys returned: {list(ambee_data.keys())}")
     else:
-        print(f"    ⚠ Ambee (AQI): Missing 'data' object or empty response")
+        print(f"    ⚠ Ambee (AQI): Failed to fetch data.")
         
     return results
 
