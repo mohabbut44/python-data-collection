@@ -5,7 +5,7 @@ import os
 import time
 import math
 
-# API Keys (GitHub Secrets থেকে আসবে)
+# API Keys
 WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY", "")
 
 divisions = {
@@ -126,26 +126,31 @@ def get_open_meteo_data(lat, lon):
 # --- 100% Bulletproof TWC Extractor ---
 def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
     pollutants = gaq_data.get('pollutants', {})
-    target_key = key_name.lower()
+    
+    # Text normalizer to strictly match keys ignoring dots, underscores, and case
+    def normalize_key(k):
+        return str(k).lower().replace('.', '').replace('_', '').replace(' ', '')
+    
+    target_key = normalize_key(key_name)
     amt = None
 
     # Search in Dictionary format
     if isinstance(pollutants, dict):
         for k, v in pollutants.items():
-            if k.lower() == target_key:
+            if normalize_key(k) == target_key:
                 amt = v.get('amount') if isinstance(v, dict) else v
                 break
     # Search in List format
     elif isinstance(pollutants, list):
         for item in pollutants:
-            if str(item.get('name', '')).lower() == target_key or str(item.get('id', '')).lower() == target_key:
+            if normalize_key(item.get('name', '')) == target_key or normalize_key(item.get('id', '')) == target_key:
                 amt = item.get('amount') if isinstance(item, dict) else item
                 break
 
     # Direct fallback if still not found
     if amt is None:
         for k, v in gaq_data.items():
-            if k.lower() == target_key:
+            if normalize_key(k) == target_key:
                 amt = v
                 break
 
