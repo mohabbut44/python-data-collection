@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timezone, timedelta
 import os
 import time
+import math
 
 # API Keys (GitHub Secrets থেকে আসবে)
 WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY", "")
@@ -41,7 +42,7 @@ def fetch_api_data(url, api_name, retries=3, delay=5):
             time.sleep(delay)
     return None
 
-# --- USA AQI Calculation Logic ---
+# --- USA AQI Calculation Logic (Exactly matching your HTML JS logic) ---
 def calculate_sub_index(conc, breakpoints):
     if conc is None or conc < 0:
         return 0
@@ -53,20 +54,27 @@ def calculate_sub_index(conc, breakpoints):
     return 500 if conc > 0 else 0
 
 def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
+    # Added all extreme upper bounds (up to 500/600) exactly like your HTML Array to prevent any fallback error
     pm25_bp = [{'cLow': 0.0, 'cHigh': 12.0, 'iLow': 0, 'iHigh': 50}, {'cLow': 12.1, 'cHigh': 35.4, 'iLow': 51, 'iHigh': 100}, {'cLow': 35.5, 'cHigh': 55.4, 'iLow': 101, 'iHigh': 150}, {'cLow': 55.5, 'cHigh': 150.4, 'iLow': 151, 'iHigh': 200}, {'cLow': 150.5, 'cHigh': 250.4, 'iLow': 201, 'iHigh': 300}, {'cLow': 250.5, 'cHigh': 350.4, 'iLow': 301, 'iHigh': 400}, {'cLow': 350.5, 'cHigh': 500.4, 'iLow': 401, 'iHigh': 500}]
     pm10_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 154, 'iLow': 51, 'iHigh': 100}, {'cLow': 155, 'cHigh': 254, 'iLow': 101, 'iHigh': 150}, {'cLow': 255, 'cHigh': 354, 'iLow': 151, 'iHigh': 200}, {'cLow': 355, 'cHigh': 424, 'iLow': 201, 'iHigh': 300}, {'cLow': 425, 'cHigh': 504, 'iLow': 301, 'iHigh': 400}, {'cLow': 505, 'cHigh': 604, 'iLow': 401, 'iHigh': 500}]
-    o3_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 70, 'iLow': 51, 'iHigh': 100}, {'cLow': 71, 'cHigh': 85, 'iLow': 101, 'iHigh': 150}, {'cLow': 86, 'cHigh': 105, 'iLow': 151, 'iHigh': 200}, {'cLow': 106, 'cHigh': 200, 'iLow': 201, 'iHigh': 300}]
-    no2_bp = [{'cLow': 0, 'cHigh': 53, 'iLow': 0, 'iHigh': 50}, {'cLow': 54, 'cHigh': 100, 'iLow': 51, 'iHigh': 100}, {'cLow': 101, 'cHigh': 360, 'iLow': 101, 'iHigh': 150}, {'cLow': 361, 'cHigh': 649, 'iLow': 151, 'iHigh': 200}]
-    so2_bp = [{'cLow': 0, 'cHigh': 35, 'iLow': 0, 'iHigh': 50}, {'cLow': 36, 'cHigh': 75, 'iLow': 51, 'iHigh': 100}, {'cLow': 76, 'cHigh': 185, 'iLow': 101, 'iHigh': 150}, {'cLow': 186, 'cHigh': 304, 'iLow': 151, 'iHigh': 200}]
-    co_bp = [{'cLow': 0.0, 'cHigh': 4.4, 'iLow': 0, 'iHigh': 50}, {'cLow': 4.5, 'cHigh': 9.4, 'iLow': 51, 'iHigh': 100}, {'cLow': 9.5, 'cHigh': 12.4, 'iLow': 101, 'iHigh': 150}, {'cLow': 12.5, 'cHigh': 15.4, 'iLow': 151, 'iHigh': 200}]
+    o3_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 70, 'iLow': 51, 'iHigh': 100}, {'cLow': 71, 'cHigh': 85, 'iLow': 101, 'iHigh': 150}, {'cLow': 86, 'cHigh': 105, 'iLow': 151, 'iHigh': 200}, {'cLow': 106, 'cHigh': 200, 'iLow': 201, 'iHigh': 300}, {'cLow': 201, 'cHigh': 400, 'iLow': 301, 'iHigh': 400}, {'cLow': 401, 'cHigh': 600, 'iLow': 401, 'iHigh': 500}]
+    no2_bp = [{'cLow': 0, 'cHigh': 53, 'iLow': 0, 'iHigh': 50}, {'cLow': 54, 'cHigh': 100, 'iLow': 51, 'iHigh': 100}, {'cLow': 101, 'cHigh': 360, 'iLow': 101, 'iHigh': 150}, {'cLow': 361, 'cHigh': 649, 'iLow': 151, 'iHigh': 200}, {'cLow': 650, 'cHigh': 1249, 'iLow': 201, 'iHigh': 300}, {'cLow': 1250, 'cHigh': 1649, 'iLow': 301, 'iHigh': 400}, {'cLow': 1650, 'cHigh': 2049, 'iLow': 401, 'iHigh': 500}]
+    so2_bp = [{'cLow': 0, 'cHigh': 35, 'iLow': 0, 'iHigh': 50}, {'cLow': 36, 'cHigh': 75, 'iLow': 51, 'iHigh': 100}, {'cLow': 76, 'cHigh': 185, 'iLow': 101, 'iHigh': 150}, {'cLow': 186, 'cHigh': 304, 'iLow': 151, 'iHigh': 200}, {'cLow': 305, 'cHigh': 604, 'iLow': 201, 'iHigh': 300}, {'cLow': 605, 'cHigh': 804, 'iLow': 301, 'iHigh': 400}, {'cLow': 805, 'cHigh': 1004, 'iLow': 401, 'iHigh': 500}]
+    co_bp = [{'cLow': 0.0, 'cHigh': 4.4, 'iLow': 0, 'iHigh': 50}, {'cLow': 4.5, 'cHigh': 9.4, 'iLow': 51, 'iHigh': 100}, {'cLow': 9.5, 'cHigh': 12.4, 'iLow': 101, 'iHigh': 150}, {'cLow': 12.5, 'cHigh': 15.4, 'iLow': 151, 'iHigh': 200}, {'cLow': 15.5, 'cHigh': 30.4, 'iLow': 201, 'iHigh': 300}, {'cLow': 30.5, 'cHigh': 40.4, 'iLow': 301, 'iHigh': 400}, {'cLow': 40.5, 'cHigh': 50.4, 'iLow': 401, 'iHigh': 500}]
+
+    # Replicating JavaScript's Math.round() to completely fix the GAP BUG
+    def js_round(val, decimals=0):
+        if val is None: return 0
+        factor = 10 ** decimals
+        return math.floor(float(val) * factor + 0.5) / factor
 
     indices = [
-        calculate_sub_index(pm25, pm25_bp),
-        calculate_sub_index(pm10, pm10_bp),
-        calculate_sub_index(o3, o3_bp),
-        calculate_sub_index(no2, no2_bp),
-        calculate_sub_index(so2, so2_bp),
-        calculate_sub_index(co, co_bp)
+        calculate_sub_index(js_round(pm25, 1), pm25_bp),
+        calculate_sub_index(js_round(pm10, 0), pm10_bp),
+        calculate_sub_index(js_round(o3, 0), o3_bp),
+        calculate_sub_index(js_round(no2, 0), no2_bp),
+        calculate_sub_index(js_round(so2, 0), so2_bp),
+        calculate_sub_index(js_round(co, 1), co_bp)
     ]
     return max(indices)
 
@@ -80,7 +88,6 @@ def get_open_meteo_data(lat, lon):
     w_res = w_data.get('current', {}) if w_data else {}
     a_res = a_data.get('current', {}) if a_data else {}
     
-    # Raw data in µg/m³
     o3 = a_res.get('ozone')
     no2 = a_res.get('nitrogen_dioxide')
     so2 = a_res.get('sulphur_dioxide')
@@ -88,7 +95,6 @@ def get_open_meteo_data(lat, lon):
     pm10 = a_res.get('pm10')
     pm2_5 = a_res.get('pm2_5')
     
-    # Strict conversion to USA EPA Standard (PPB / PPM)
     o3_ppb = (o3 / 1.96) if o3 is not None else 0
     no2_ppb = (no2 / 1.88) if no2 is not None else 0
     so2_ppb = (so2 / 2.62) if so2 is not None else 0
@@ -117,14 +123,11 @@ def get_open_meteo_data(lat, lon):
         "OM_CO_(ppm)": safe_round(co_ppm)
     }
 
-# --- Bulletproof TWC Pollutant Extractor ---
 def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
-    """Extracts pollutant safely from Dict or List, and fixes unit differences"""
     pollutants = gaq_data.get('pollutants')
     amt = None
     unit = ""
 
-    # Parse depending on how TWC returned it (Dict vs List)
     if isinstance(pollutants, dict):
         p = pollutants.get(key_name, {})
         if isinstance(p, dict):
@@ -139,14 +142,12 @@ def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
                 unit = str(p.get('unit', '')).upper()
                 break
 
-    # Direct fallback
     if amt is None:
         amt = gaq_data.get(key_name)
 
     if amt is None:
         return None
 
-    # If TWC returns gases in µg/m3 instead of PPB, convert it to match Open-Meteo
     if unit in ['UGM3', 'UG/M3'] and factor != 1.0:
         amt = float(amt) / factor
 
@@ -180,13 +181,12 @@ def get_std_data(lat, lon):
             "WC_AQI_(USA)": safe_round(gaq.get('airQualityIndex')),
             "WC_PM2.5_(µg/m3)": safe_round(extract_twc_pollutant(gaq, 'pm25')),
             "WC_PM10_(µg/m3)": safe_round(extract_twc_pollutant(gaq, 'pm10')),
-            # Using same scientific division factors used in Open-Meteo for absolute parity
             "WC_O3_(ppb)": safe_round(extract_twc_pollutant(gaq, 'o3', 1.96)),
             "WC_NO2_(ppb)": safe_round(extract_twc_pollutant(gaq, 'no2', 1.88)),
             "WC_SO2_(ppb)": safe_round(extract_twc_pollutant(gaq, 'so2', 2.62)),
             "WC_CO_(ppm)": safe_round(extract_twc_pollutant(gaq, 'co', 1145))
         })
-        print(f"    ✓ Weather Channel (AQI): Pollutants Extracted Successfully")
+        print(f"    ✓ Weather Channel (AQI): OK")
     
     return results
 
@@ -196,7 +196,7 @@ def collect():
     now_obj = datetime.now(bd_timezone)
     
     date_str = now_obj.strftime("%Y-%m-%d")
-    time_str = now_obj.strftime("%I:%M:%S %p") # Format: 04:30:00 PM
+    time_str = now_obj.strftime("%I:%M:%S %p")
     
     print(f"\n{'='*60}")
     print(f"🌍 Collection started at {date_str} {time_str} (BD Time)")
