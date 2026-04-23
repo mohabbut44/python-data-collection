@@ -80,6 +80,7 @@ def get_open_meteo_data(lat, lon):
     w_res = w_data.get('current', {}) if w_data else {}
     a_res = a_data.get('current', {}) if a_data else {}
     
+    # Raw data in µg/m³
     o3 = a_res.get('ozone')
     no2 = a_res.get('nitrogen_dioxide')
     so2 = a_res.get('sulphur_dioxide')
@@ -87,6 +88,7 @@ def get_open_meteo_data(lat, lon):
     pm10 = a_res.get('pm10')
     pm2_5 = a_res.get('pm2_5')
     
+    # Strict conversion to USA EPA Standard (PPB / PPM)
     o3_ppb = (o3 / 1.96) if o3 is not None else 0
     no2_ppb = (no2 / 1.88) if no2 is not None else 0
     so2_ppb = (so2 / 2.62) if so2 is not None else 0
@@ -115,6 +117,41 @@ def get_open_meteo_data(lat, lon):
         "OM_CO_(ppm)": safe_round(co_ppm)
     }
 
+# --- Bulletproof TWC Pollutant Extractor ---
+def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
+    """Extracts pollutant safely from Dict or List, and fixes unit differences"""
+    pollutants = gaq_data.get('pollutants')
+    amt = None
+    unit = ""
+
+    # Parse depending on how TWC returned it (Dict vs List)
+    if isinstance(pollutants, dict):
+        p = pollutants.get(key_name, {})
+        if isinstance(p, dict):
+            amt = p.get('amount')
+            unit = str(p.get('unit', '')).upper()
+        else:
+            amt = p
+    elif isinstance(pollutants, list):
+        for p in pollutants:
+            if str(p.get('name', '')).lower() == key_name:
+                amt = p.get('amount')
+                unit = str(p.get('unit', '')).upper()
+                break
+
+    # Direct fallback
+    if amt is None:
+        amt = gaq_data.get(key_name)
+
+    if amt is None:
+        return None
+
+    # If TWC returns gases in µg/m3 instead of PPB, convert it to match Open-Meteo
+    if unit in ['UGM3', 'UG/M3'] and factor != 1.0:
+        amt = float(amt) / factor
+
+    return amt
+
 def get_std_data(lat, lon):
     results = {
         "WC_Temp_C": None, "WC_Humidity_%": None, "WC_Pressure_hPa": None,
@@ -133,36 +170,33 @@ def get_std_data(lat, lon):
         })
         print(f"    ✓ Weather Channel (Wx): OK")
 
-    # Added scale=EPA for USA scale
     aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat},{lon}&format=json&language=en-US&scale=EPA&apiKey={WEATHER_CHANNEL_API_KEY}"
     aqi_data = fetch_api_data(aqi_url, "Weather Channel (AQI)")
     
     if aqi_data and 'globalairquality' in aqi_data:
         gaq = aqi_data['globalairquality']
-        if isinstance(gaq, dict):
-            # Extracting nested pollutants data correctly
-            pollutants = gaq.get('pollutants', {})
-            
-            results.update({
-                "WC_AQI_(USA)": safe_round(gaq.get('airQualityIndex')),
-                "WC_PM2.5_(µg/m3)": safe_round(pollutants.get('pm25', {}).get('amount') if 'pm25' in pollutants else gaq.get('pm25')),
-                "WC_PM10_(µg/m3)": safe_round(pollutants.get('pm10', {}).get('amount') if 'pm10' in pollutants else gaq.get('pm10')),
-                "WC_O3_(ppb)": safe_round(pollutants.get('o3', {}).get('amount') if 'o3' in pollutants else gaq.get('o3')),
-                "WC_NO2_(ppb)": safe_round(pollutants.get('no2', {}).get('amount') if 'no2' in pollutants else gaq.get('no2')),
-                "WC_SO2_(ppb)": safe_round(pollutants.get('so2', {}).get('amount') if 'so2' in pollutants else gaq.get('so2')),
-                "WC_CO_(ppm)": safe_round(pollutants.get('co', {}).get('amount') if 'co' in pollutants else gaq.get('co'))
-            })
-            print(f"    ✓ Weather Channel (AQI): OK")
+        
+        results.update({
+            "WC_AQI_(USA)": safe_round(gaq.get('airQualityIndex')),
+            "WC_PM2.5_(µg/m3)": safe_round(extract_twc_pollutant(gaq, 'pm25')),
+            "WC_PM10_(µg/m3)": safe_round(extract_twc_pollutant(gaq, 'pm10')),
+            # Using same scientific division factors used in Open-Meteo for absolute parity
+            "WC_O3_(ppb)": safe_round(extract_twc_pollutant(gaq, 'o3', 1.96)),
+            "WC_NO2_(ppb)": safe_round(extract_twc_pollutant(gaq, 'no2', 1.88)),
+            "WC_SO2_(ppb)": safe_round(extract_twc_pollutant(gaq, 'so2', 2.62)),
+            "WC_CO_(ppm)": safe_round(extract_twc_pollutant(gaq, 'co', 1145))
+        })
+        print(f"    ✓ Weather Channel (AQI): Pollutants Extracted Successfully")
     
     return results
 
 def collect():
-    # Set Bangladesh Timezone (UTC + 6)
+    # 🕒 Set EXACT Bangladesh Timezone (UTC + 6)
     bd_timezone = timezone(timedelta(hours=6))
     now_obj = datetime.now(bd_timezone)
     
     date_str = now_obj.strftime("%Y-%m-%d")
-    time_str = now_obj.strftime("%I:%M:%S %p") # AM/PM format
+    time_str = now_obj.strftime("%I:%M:%S %p") # Format: 04:30:00 PM
     
     print(f"\n{'='*60}")
     print(f"🌍 Collection started at {date_str} {time_str} (BD Time)")
@@ -186,7 +220,7 @@ def collect():
     df = pd.DataFrame(final_rows)
     file = "app_vs_standard_ml_data.csv"
     
-    # Safe Save & Append Logic for CSV
+    # Safe Save & Append Logic
     if not os.path.isfile(file):
         df.to_csv(file, index=False)
         print(f"✅ New CSV file created: {file}")
