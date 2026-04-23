@@ -1,6 +1,6 @@
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import os
 import time
 
@@ -133,32 +133,39 @@ def get_std_data(lat, lon):
         })
         print(f"    ✓ Weather Channel (Wx): OK")
 
-    aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat},{lon}&format=json&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
+    # Added scale=EPA for USA scale
+    aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat},{lon}&format=json&language=en-US&scale=EPA&apiKey={WEATHER_CHANNEL_API_KEY}"
     aqi_data = fetch_api_data(aqi_url, "Weather Channel (AQI)")
     
     if aqi_data and 'globalairquality' in aqi_data:
         gaq = aqi_data['globalairquality']
         if isinstance(gaq, dict):
+            # Extracting nested pollutants data correctly
+            pollutants = gaq.get('pollutants', {})
+            
             results.update({
                 "WC_AQI_(USA)": safe_round(gaq.get('airQualityIndex')),
-                "WC_PM2.5_(µg/m3)": safe_round(gaq.get('pm25')),
-                "WC_PM10_(µg/m3)": safe_round(gaq.get('pm10')),
-                "WC_O3_(ppb)": safe_round(gaq.get('o3')),
-                "WC_NO2_(ppb)": safe_round(gaq.get('no2')),
-                "WC_SO2_(ppb)": safe_round(gaq.get('so2')),
-                "WC_CO_(ppm)": safe_round(gaq.get('co'))
+                "WC_PM2.5_(µg/m3)": safe_round(pollutants.get('pm25', {}).get('amount') if 'pm25' in pollutants else gaq.get('pm25')),
+                "WC_PM10_(µg/m3)": safe_round(pollutants.get('pm10', {}).get('amount') if 'pm10' in pollutants else gaq.get('pm10')),
+                "WC_O3_(ppb)": safe_round(pollutants.get('o3', {}).get('amount') if 'o3' in pollutants else gaq.get('o3')),
+                "WC_NO2_(ppb)": safe_round(pollutants.get('no2', {}).get('amount') if 'no2' in pollutants else gaq.get('no2')),
+                "WC_SO2_(ppb)": safe_round(pollutants.get('so2', {}).get('amount') if 'so2' in pollutants else gaq.get('so2')),
+                "WC_CO_(ppm)": safe_round(pollutants.get('co', {}).get('amount') if 'co' in pollutants else gaq.get('co'))
             })
             print(f"    ✓ Weather Channel (AQI): OK")
     
     return results
 
 def collect():
-    now_obj = datetime.now()
+    # Set Bangladesh Timezone (UTC + 6)
+    bd_timezone = timezone(timedelta(hours=6))
+    now_obj = datetime.now(bd_timezone)
+    
     date_str = now_obj.strftime("%Y-%m-%d")
-    time_str = now_obj.strftime("%H:%M:%S")
+    time_str = now_obj.strftime("%I:%M:%S %p") # AM/PM format
     
     print(f"\n{'='*60}")
-    print(f"🌍 Collection started at {date_str} {time_str}")
+    print(f"🌍 Collection started at {date_str} {time_str} (BD Time)")
     print(f"{'='*60}\n")
     
     final_rows = []
