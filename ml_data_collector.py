@@ -4,9 +4,9 @@ from datetime import datetime
 import os
 import time
 
-# API Keys (এগুলো এখন GitHub Secrets থেকে আসবে)
-AMBEE_API_KEY = os.getenv("AMBEE_API_KEY")
-WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY")
+# API Keys (GitHub Secrets থেকে আসবে)
+AMBEE_API_KEY = os.getenv("AMBEE_API_KEY", "")
+WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY", "")
 
 divisions = {
     "Dhaka": {"lat": 23.8103, "lon": 90.4125},
@@ -18,6 +18,16 @@ divisions = {
     "Rangpur": {"lat": 25.7439, "lon": 89.2752},
     "Mymensingh": {"lat": 24.7471, "lon": 90.4203}
 }
+
+# --- Error Handling Helper ---
+def safe_round(val, digits=2):
+    """Safely round a value that might be missing (None)."""
+    if val is None:
+        return None
+    try:
+        return round(float(val), digits)
+    except (ValueError, TypeError):
+        return None
 
 # --- USA AQI Calculation Logic ---
 def calculate_sub_index(conc, breakpoints):
@@ -35,55 +45,12 @@ def calculate_sub_index(conc, breakpoints):
 
 def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
     """Calculate USA AQI from pollutant concentrations"""
-    
-    pm25_bp = [
-        {'cLow': 0.0, 'cHigh': 12.0, 'iLow': 0, 'iHigh': 50},
-        {'cLow': 12.1, 'cHigh': 35.4, 'iLow': 51, 'iHigh': 100},
-        {'cLow': 35.5, 'cHigh': 55.4, 'iLow': 101, 'iHigh': 150},
-        {'cLow': 55.5, 'cHigh': 150.4, 'iLow': 151, 'iHigh': 200},
-        {'cLow': 150.5, 'cHigh': 250.4, 'iLow': 201, 'iHigh': 300},
-        {'cLow': 250.5, 'cHigh': 350.4, 'iLow': 301, 'iHigh': 400},
-        {'cLow': 350.5, 'cHigh': 500.4, 'iLow': 401, 'iHigh': 500}
-    ]
-    
-    pm10_bp = [
-        {'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50},
-        {'cLow': 55, 'cHigh': 154, 'iLow': 51, 'iHigh': 100},
-        {'cLow': 155, 'cHigh': 254, 'iLow': 101, 'iHigh': 150},
-        {'cLow': 255, 'cHigh': 354, 'iLow': 151, 'iHigh': 200},
-        {'cLow': 355, 'cHigh': 424, 'iLow': 201, 'iHigh': 300},
-        {'cLow': 425, 'cHigh': 504, 'iLow': 301, 'iHigh': 400},
-        {'cLow': 505, 'cHigh': 604, 'iLow': 401, 'iHigh': 500}
-    ]
-    
-    o3_bp = [
-        {'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50},
-        {'cLow': 55, 'cHigh': 70, 'iLow': 51, 'iHigh': 100},
-        {'cLow': 71, 'cHigh': 85, 'iLow': 101, 'iHigh': 150},
-        {'cLow': 86, 'cHigh': 105, 'iLow': 151, 'iHigh': 200},
-        {'cLow': 106, 'cHigh': 200, 'iLow': 201, 'iHigh': 300}
-    ]
-    
-    no2_bp = [
-        {'cLow': 0, 'cHigh': 53, 'iLow': 0, 'iHigh': 50},
-        {'cLow': 54, 'cHigh': 100, 'iLow': 51, 'iHigh': 100},
-        {'cLow': 101, 'cHigh': 360, 'iLow': 101, 'iHigh': 150},
-        {'cLow': 361, 'cHigh': 649, 'iLow': 151, 'iHigh': 200}
-    ]
-    
-    so2_bp = [
-        {'cLow': 0, 'cHigh': 35, 'iLow': 0, 'iHigh': 50},
-        {'cLow': 36, 'cHigh': 75, 'iLow': 51, 'iHigh': 100},
-        {'cLow': 76, 'cHigh': 185, 'iLow': 101, 'iHigh': 150},
-        {'cLow': 186, 'cHigh': 304, 'iLow': 151, 'iHigh': 200}
-    ]
-    
-    co_bp = [
-        {'cLow': 0.0, 'cHigh': 4.4, 'iLow': 0, 'iHigh': 50},
-        {'cLow': 4.5, 'cHigh': 9.4, 'iLow': 51, 'iHigh': 100},
-        {'cLow': 9.5, 'cHigh': 12.4, 'iLow': 101, 'iHigh': 150},
-        {'cLow': 12.5, 'cHigh': 15.4, 'iLow': 151, 'iHigh': 200}
-    ]
+    pm25_bp = [{'cLow': 0.0, 'cHigh': 12.0, 'iLow': 0, 'iHigh': 50}, {'cLow': 12.1, 'cHigh': 35.4, 'iLow': 51, 'iHigh': 100}, {'cLow': 35.5, 'cHigh': 55.4, 'iLow': 101, 'iHigh': 150}, {'cLow': 55.5, 'cHigh': 150.4, 'iLow': 151, 'iHigh': 200}, {'cLow': 150.5, 'cHigh': 250.4, 'iLow': 201, 'iHigh': 300}, {'cLow': 250.5, 'cHigh': 350.4, 'iLow': 301, 'iHigh': 400}, {'cLow': 350.5, 'cHigh': 500.4, 'iLow': 401, 'iHigh': 500}]
+    pm10_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 154, 'iLow': 51, 'iHigh': 100}, {'cLow': 155, 'cHigh': 254, 'iLow': 101, 'iHigh': 150}, {'cLow': 255, 'cHigh': 354, 'iLow': 151, 'iHigh': 200}, {'cLow': 355, 'cHigh': 424, 'iLow': 201, 'iHigh': 300}, {'cLow': 425, 'cHigh': 504, 'iLow': 301, 'iHigh': 400}, {'cLow': 505, 'cHigh': 604, 'iLow': 401, 'iHigh': 500}]
+    o3_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 70, 'iLow': 51, 'iHigh': 100}, {'cLow': 71, 'cHigh': 85, 'iLow': 101, 'iHigh': 150}, {'cLow': 86, 'cHigh': 105, 'iLow': 151, 'iHigh': 200}, {'cLow': 106, 'cHigh': 200, 'iLow': 201, 'iHigh': 300}]
+    no2_bp = [{'cLow': 0, 'cHigh': 53, 'iLow': 0, 'iHigh': 50}, {'cLow': 54, 'cHigh': 100, 'iLow': 51, 'iHigh': 100}, {'cLow': 101, 'cHigh': 360, 'iLow': 101, 'iHigh': 150}, {'cLow': 361, 'cHigh': 649, 'iLow': 151, 'iHigh': 200}]
+    so2_bp = [{'cLow': 0, 'cHigh': 35, 'iLow': 0, 'iHigh': 50}, {'cLow': 36, 'cHigh': 75, 'iLow': 51, 'iHigh': 100}, {'cLow': 76, 'cHigh': 185, 'iLow': 101, 'iHigh': 150}, {'cLow': 186, 'cHigh': 304, 'iLow': 151, 'iHigh': 200}]
+    co_bp = [{'cLow': 0.0, 'cHigh': 4.4, 'iLow': 0, 'iHigh': 50}, {'cLow': 4.5, 'cHigh': 9.4, 'iLow': 51, 'iHigh': 100}, {'cLow': 9.5, 'cHigh': 12.4, 'iLow': 101, 'iHigh': 150}, {'cLow': 12.5, 'cHigh': 15.4, 'iLow': 151, 'iHigh': 200}]
 
     indices = [
         calculate_sub_index(pm25, pm25_bp),
@@ -93,7 +60,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
         calculate_sub_index(so2, so2_bp),
         calculate_sub_index(co, co_bp)
     ]
-    
     return max(indices)
 
 def get_open_meteo_data(lat, lon):
@@ -102,31 +68,37 @@ def get_open_meteo_data(lat, lon):
         w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
         a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
         
-        w_res = requests.get(w_url, timeout=15).json()['current']
-        a_res = requests.get(a_url, timeout=15).json()['current']
+        # Safely get current data dictionary
+        w_res = requests.get(w_url, timeout=15).json().get('current', {})
+        a_res = requests.get(a_url, timeout=15).json().get('current', {})
         
-        o3_ppb = a_res['ozone'] / 1.96 if a_res.get('ozone') else 0
-        no2_ppb = a_res['nitrogen_dioxide'] / 1.88 if a_res.get('nitrogen_dioxide') else 0
-        so2_ppb = a_res['sulphur_dioxide'] / 2.62 if a_res.get('sulphur_dioxide') else 0
-        co_ppm = a_res['carbon_monoxide'] / 1145 if a_res.get('carbon_monoxide') else 0
+        # Safe extraction for calculations (default to 0 if None)
+        o3 = a_res.get('ozone')
+        no2 = a_res.get('nitrogen_dioxide')
+        so2 = a_res.get('sulphur_dioxide')
+        co = a_res.get('carbon_monoxide')
+        pm10 = a_res.get('pm10')
+        pm2_5 = a_res.get('pm2_5')
+        
+        o3_ppb = (o3 / 1.96) if o3 is not None else 0
+        no2_ppb = (no2 / 1.88) if no2 is not None else 0
+        so2_ppb = (so2 / 2.62) if so2 is not None else 0
+        co_ppm = (co / 1145) if co is not None else 0
         
         calc_aqi = calculate_usa_aqi(
-            a_res['pm2_5'], 
-            a_res['pm10'], 
-            o3_ppb, 
-            no2_ppb, 
-            so2_ppb, 
-            co_ppm
+            pm2_5 if pm2_5 is not None else 0, 
+            pm10 if pm10 is not None else 0, 
+            o3_ppb, no2_ppb, so2_ppb, co_ppm
         )
 
         return {
-            "app_temp": round(w_res['temperature_2m'], 2),
-            "app_humidity": w_res['relative_humidity_2m'],
-            "app_pressure": round(w_res['surface_pressure'], 2),
-            "app_uv": round(w_res['uv_index'], 2),
+            "app_temp": safe_round(w_res.get('temperature_2m')),
+            "app_humidity": safe_round(w_res.get('relative_humidity_2m')),
+            "app_pressure": safe_round(w_res.get('surface_pressure')),
+            "app_uv": safe_round(w_res.get('uv_index')),
             "app_aqi": calc_aqi,
-            "app_pm10": round(a_res['pm10'], 2),
-            "app_pm2_5": round(a_res['pm2_5'], 2)
+            "app_pm10": safe_round(pm10),
+            "app_pm2_5": safe_round(pm2_5)
         }
     except Exception as e:
         print(f"  ⚠ OpenMeteo Error: {e}")
@@ -146,54 +118,50 @@ def get_std_data(lat, lon):
         "std_pm2_5": None
     }
     
+    # ===== Weather Channel API =====
     try:
-        # ===== Weather Channel API =====
         wc_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
-        
-        try:
-            wc_res = requests.get(wc_url, timeout=15)
-            if wc_res.status_code == 200:
-                wc = wc_res.json()
-                results.update({
-                    "std_temp": round(wc.get('temperature'), 2) if wc.get('temperature') else None,
-                    "std_humidity": wc.get('relativeHumidity'),
-                    "std_pressure": round(wc.get('pressureMeanSeaLevel'), 2) if wc.get('pressureMeanSeaLevel') else None
-                })
-                print(f"    ✓ Weather Channel: OK")
-            else:
-                print(f"    ⚠ Weather Channel: Status {wc_res.status_code} - {wc_res.text}")
-        except Exception as e:
-            print(f"    ⚠ Weather Channel Error: {e}")
-        
-        # ===== Ambee API =====
+        wc_res = requests.get(wc_url, timeout=15)
+        if wc_res.status_code == 200:
+            wc = wc_res.json()
+            results.update({
+                "std_temp": safe_round(wc.get('temperature')),
+                "std_humidity": safe_round(wc.get('relativeHumidity')),
+                "std_pressure": safe_round(wc.get('pressureMeanSeaLevel'))
+            })
+            print(f"    ✓ Weather Channel: OK")
+        else:
+            print(f"    ⚠ Weather Channel: Status {wc_res.status_code}")
+    except Exception as e:
+        print(f"    ⚠ Weather Channel Error: {e}")
+    
+    # ===== Ambee API =====
+    try:
         headers = {
             'x-api-key': AMBEE_API_KEY,
             'Content-type': 'application/json'
         }
         amb_url = f"https://api.ambeedata.com/latest/by-lat-lng?lat={lat}&lng={lon}"
+        amb_res = requests.get(amb_url, headers=headers, timeout=15)
         
-        try:
-            amb_res = requests.get(amb_url, headers=headers, timeout=15)
-            if amb_res.status_code == 200:
-                amb = amb_res.json()
-                data_list = amb.get('data') or amb.get('stations')
-                if data_list and len(data_list) > 0:
-                    aqi_data = data_list[0]
-                    results.update({
-                        "std_aqi": aqi_data.get('AQI'),
-                        "std_pm10": round(aqi_data.get('PM10'), 2) if aqi_data.get('PM10') else None,
-                        "std_pm2_5": round(aqi_data.get('PM25'), 2) if aqi_data.get('PM25') else None
-                    })
-                    print(f"    ✓ Ambee: OK")
-                else:
-                    print(f"    ⚠ Ambee: No data array in response.")
+        if amb_res.status_code == 200:
+            amb = amb_res.json()
+            # Handle variations in Ambee response structure
+            data_list = amb.get('data') or amb.get('stations') or []
+            if len(data_list) > 0:
+                aqi_data = data_list[0]
+                results.update({
+                    "std_aqi": aqi_data.get('AQI') or aqi_data.get('aqi'),
+                    "std_pm10": safe_round(aqi_data.get('PM10') or aqi_data.get('pm10')),
+                    "std_pm2_5": safe_round(aqi_data.get('PM25') or aqi_data.get('pm25') or aqi_data.get('pm2_5'))
+                })
+                print(f"    ✓ Ambee: OK")
             else:
-                print(f"    ⚠ Ambee: Status {amb_res.status_code} - {amb_res.text}")
-        except Exception as e:
-            print(f"    ⚠ Ambee Error: {e}")
-    
+                print(f"    ⚠ Ambee: No data array in response.")
+        else:
+            print(f"    ⚠ Ambee: Status {amb_res.status_code} - {amb_res.text}")
     except Exception as e:
-        print(f"  ⚠ Standard APIs Error: {e}")
+        print(f"    ⚠ Ambee Error: {e}")
     
     return results
 
@@ -224,7 +192,6 @@ def collect():
             time.sleep(2)
 
     df = pd.DataFrame(final_rows)
-    
     file = "app_vs_standard_ml_data.csv"
     
     if not os.path.isfile(file):
