@@ -5,7 +5,6 @@ import os
 import time
 
 # API Keys (GitHub Secrets থেকে আসবে)
-AMBEE_API_KEY = os.getenv("AMBEE_API_KEY", "")
 WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY", "")
 
 divisions = {
@@ -29,22 +28,18 @@ def safe_round(val, digits=2):
     except (ValueError, TypeError):
         return None
 
-# --- USA AQI Calculation Logic ---
+# --- USA AQI Calculation Logic (For Open-Meteo) ---
 def calculate_sub_index(conc, breakpoints):
-    """Calculate AQI sub-index for a pollutant"""
     if conc is None or conc < 0:
         return 0
-    
     for bp in breakpoints:
         if conc >= bp['cLow'] and conc <= bp['cHigh']:
             return round(
                 ((bp['iHigh'] - bp['iLow']) / (bp['cHigh'] - bp['cLow'])) * (conc - bp['cLow']) + bp['iLow']
             )
-    
     return 500 if conc > 0 else 0
 
 def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
-    """Calculate USA AQI from pollutant concentrations"""
     pm25_bp = [{'cLow': 0.0, 'cHigh': 12.0, 'iLow': 0, 'iHigh': 50}, {'cLow': 12.1, 'cHigh': 35.4, 'iLow': 51, 'iHigh': 100}, {'cLow': 35.5, 'cHigh': 55.4, 'iLow': 101, 'iHigh': 150}, {'cLow': 55.5, 'cHigh': 150.4, 'iLow': 151, 'iHigh': 200}, {'cLow': 150.5, 'cHigh': 250.4, 'iLow': 201, 'iHigh': 300}, {'cLow': 250.5, 'cHigh': 350.4, 'iLow': 301, 'iHigh': 400}, {'cLow': 350.5, 'cHigh': 500.4, 'iLow': 401, 'iHigh': 500}]
     pm10_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 154, 'iLow': 51, 'iHigh': 100}, {'cLow': 155, 'cHigh': 254, 'iLow': 101, 'iHigh': 150}, {'cLow': 255, 'cHigh': 354, 'iLow': 151, 'iHigh': 200}, {'cLow': 355, 'cHigh': 424, 'iLow': 201, 'iHigh': 300}, {'cLow': 425, 'cHigh': 504, 'iLow': 301, 'iHigh': 400}, {'cLow': 505, 'cHigh': 604, 'iLow': 401, 'iHigh': 500}]
     o3_bp = [{'cLow': 0, 'cHigh': 54, 'iLow': 0, 'iHigh': 50}, {'cLow': 55, 'cHigh': 70, 'iLow': 51, 'iHigh': 100}, {'cLow': 71, 'cHigh': 85, 'iLow': 101, 'iHigh': 150}, {'cLow': 86, 'cHigh': 105, 'iLow': 151, 'iHigh': 200}, {'cLow': 106, 'cHigh': 200, 'iLow': 201, 'iHigh': 300}]
@@ -68,11 +63,9 @@ def get_open_meteo_data(lat, lon):
         w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
         a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
         
-        # Safely get current data dictionary
         w_res = requests.get(w_url, timeout=15).json().get('current', {})
         a_res = requests.get(a_url, timeout=15).json().get('current', {})
         
-        # Safe extraction for calculations (default to 0 if None)
         o3 = a_res.get('ozone')
         no2 = a_res.get('nitrogen_dioxide')
         so2 = a_res.get('sulphur_dioxide')
@@ -108,7 +101,7 @@ def get_open_meteo_data(lat, lon):
         }
 
 def get_std_data(lat, lon):
-    """Fetch data from Standard APIs (Weather Channel & Ambee)"""
+    """Fetch data from Standard APIs (Only Weather Channel)"""
     results = {
         "std_temp": None, 
         "std_humidity": None, 
@@ -118,50 +111,44 @@ def get_std_data(lat, lon):
         "std_pm2_5": None
     }
     
-    # ===== Weather Channel API =====
+    # 1. Weather Channel: Current Observations (Temp, Humidity, Pressure)
     try:
-        wc_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
-        wc_res = requests.get(wc_url, timeout=15)
-        if wc_res.status_code == 200:
-            wc = wc_res.json()
+        wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
+        wx_res = requests.get(wx_url, timeout=15)
+        if wx_res.status_code == 200:
+            wx = wx_res.json()
             results.update({
-                "std_temp": safe_round(wc.get('temperature')),
-                "std_humidity": safe_round(wc.get('relativeHumidity')),
-                "std_pressure": safe_round(wc.get('pressureMeanSeaLevel'))
+                "std_temp": safe_round(wx.get('temperature')),
+                "std_humidity": safe_round(wx.get('relativeHumidity')),
+                "std_pressure": safe_round(wx.get('pressureMeanSeaLevel'))
             })
-            print(f"    ✓ Weather Channel: OK")
+            print(f"    ✓ Weather Channel (Wx): OK")
         else:
-            print(f"    ⚠ Weather Channel: Status {wc_res.status_code}")
+            print(f"    ⚠ Weather Channel (Wx): Status {wx_res.status_code}")
     except Exception as e:
-        print(f"    ⚠ Weather Channel Error: {e}")
-    
-    # ===== Ambee API =====
+        print(f"    ⚠ Weather Channel (Wx) Error: {e}")
+
+    # 2. Weather Channel: Air Quality (AQI, PM2.5, PM10)
     try:
-        headers = {
-            'x-api-key': AMBEE_API_KEY,
-            'Content-type': 'application/json'
-        }
-        amb_url = f"https://api.ambeedata.com/latest/by-lat-lng?lat={lat}&lng={lon}"
-        amb_res = requests.get(amb_url, headers=headers, timeout=15)
-        
-        if amb_res.status_code == 200:
-            amb = amb_res.json()
-            # Handle variations in Ambee response structure
-            data_list = amb.get('data') or amb.get('stations') or []
-            if len(data_list) > 0:
-                aqi_data = data_list[0]
+        aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat},{lon}&format=json&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
+        aqi_res = requests.get(aqi_url, timeout=15)
+        if aqi_res.status_code == 200:
+            aqi_data = aqi_res.json()
+            # The Weather Channel provides a globalAQI object containing pollutant details
+            if 'globalairquality' in aqi_data:
+                gaq = aqi_data['globalairquality']
                 results.update({
-                    "std_aqi": aqi_data.get('AQI') or aqi_data.get('aqi'),
-                    "std_pm10": safe_round(aqi_data.get('PM10') or aqi_data.get('pm10')),
-                    "std_pm2_5": safe_round(aqi_data.get('PM25') or aqi_data.get('pm25') or aqi_data.get('pm2_5'))
+                    "std_aqi": safe_round(gaq.get('airQualityIndex')),
+                    "std_pm10": safe_round(gaq.get('pm10')),
+                    "std_pm2_5": safe_round(gaq.get('pm25'))
                 })
-                print(f"    ✓ Ambee: OK")
+                print(f"    ✓ Weather Channel (AQI): OK")
             else:
-                print(f"    ⚠ Ambee: No data array in response.")
+                print(f"    ⚠ Weather Channel (AQI): Data structure unexpected.")
         else:
-            print(f"    ⚠ Ambee: Status {amb_res.status_code} - {amb_res.text}")
+            print(f"    ⚠ Weather Channel (AQI): Status {aqi_res.status_code}")
     except Exception as e:
-        print(f"    ⚠ Ambee Error: {e}")
+        print(f"    ⚠ Weather Channel (AQI) Error: {e}")
     
     return results
 
