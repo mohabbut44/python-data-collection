@@ -1,32 +1,39 @@
-name: Hourly Data Fix
+name: Hourly Data Collection
 
 on:
   schedule:
-    - cron: '0 * * * *'
-  workflow_dispatch:
+    - cron: '0 * * * *' # প্রতি ঘণ্টা পরপর রান করবে
+  workflow_dispatch: # ম্যানুয়ালি রান করার অপশন
 
 jobs:
-  build:
+  collect-data:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install requests pandas
+        run: pip install -r requirements.txt
 
-      - name: Run collector
-        run: python ml_data_collector.py
+      - name: Run Python Script
+        env:
+          AMBEE_API_KEY: ${{ secrets.AMBEE_API_KEY }}
+          WEATHER_CHANNEL_API_KEY: ${{ secrets.WEATHER_CHANNEL_API_KEY }}
+        run: python main.py # আপনার পাইথন ফাইলের নাম main.py না হলে সেটি এখানে পরিবর্তন করে দিন
 
-      - name: Save to Repo
+      - name: Commit and push changes
         run: |
-          git config --global user.name "DataBot"
-          git config --global user.email "bot@github.com"
-          git add .
-          git commit -m "Hourly Data Update" || echo "No changes to commit"
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add app_vs_standard_ml_data.csv
+          git commit -m "🤖 Auto-update hourly data" || echo "No changes to commit"
           git push
