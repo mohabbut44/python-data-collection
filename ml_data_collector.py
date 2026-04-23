@@ -77,7 +77,6 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
     return max(indices)
 
 def get_open_meteo_data(lat, lon):
-    # Lock coordinates to 4 decimal places for precision matching
     lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
     
     w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat_str}&longitude={lon_str}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
@@ -124,36 +123,24 @@ def get_open_meteo_data(lat, lon):
         "OM_CO_(ppm)": safe_round(co_ppm)
     }
 
+# --- 100% Bulletproof TWC Extractor ---
 def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
-    """Smart extractor that ignores case sensitivity and structure variations"""
     pollutants = gaq_data.get('pollutants', {})
-    if not pollutants:
-        return None
-
     target_key = key_name.lower()
-    p = None
-    
-    # Case-insensitive search in Dictionary
+    amt = None
+
+    # Search in Dictionary format
     if isinstance(pollutants, dict):
         for k, v in pollutants.items():
             if k.lower() == target_key:
-                p = v
+                amt = v.get('amount') if isinstance(v, dict) else v
                 break
-    # Case-insensitive search in List
+    # Search in List format
     elif isinstance(pollutants, list):
         for item in pollutants:
             if str(item.get('name', '')).lower() == target_key or str(item.get('id', '')).lower() == target_key:
-                p = item
+                amt = item.get('amount') if isinstance(item, dict) else item
                 break
-
-    amt = None
-    unit = ""
-
-    if isinstance(p, dict):
-        amt = p.get('amount')
-        unit = str(p.get('unit', '')).upper()
-    elif p is not None:
-        amt = p
 
     # Direct fallback if still not found
     if amt is None:
@@ -170,14 +157,13 @@ def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
     except (ValueError, TypeError):
         return None
 
-    # Conversion logic for standardization
-    if unit in ['UGM3', 'UG/M3', 'µG/M3'] and factor != 1.0:
+    # ⚠️ FORCE CONVERSION: TWC returns µg/m³, we forcefully divide it to match OM's ppb/ppm
+    if factor != 1.0:
         amt = amt / factor
 
     return amt
 
 def get_std_data(lat, lon):
-    # Lock coordinates to 4 decimal places for precision matching
     lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
     
     results = {
