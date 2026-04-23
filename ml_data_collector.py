@@ -28,12 +28,17 @@ def safe_round(val, digits=2):
     except (ValueError, TypeError):
         return None
 
-def fetch_api_data(url, api_name, retries=3, delay=5):
+def fetch_api_data(url, api_name, retries=5, delay=5):
     for attempt in range(1, retries + 1):
         try:
-            res = requests.get(url, timeout=15)
+            res = requests.get(url, timeout=20)
             if res.status_code == 200:
                 return res.json()
+            elif res.status_code == 429:
+                # Exponential backoff for rate limiting
+                wait_time = delay * attempt * 2 
+                print(f"      ⚠ {api_name} Rate Limited (429). Waiting {wait_time}s before retry {attempt}/{retries}...")
+                time.sleep(wait_time)
             else:
                 print(f"      ⚠ {api_name} API Error (Status {res.status_code}). Retrying {attempt}/{retries} in {delay}s...")
                 time.sleep(delay)
@@ -48,9 +53,7 @@ def calculate_sub_index(conc, breakpoints):
         return 0
     for bp in breakpoints:
         if conc >= bp['cLow'] and conc <= bp['cHigh']:
-            return round(
-                ((bp['iHigh'] - bp['iLow']) / (bp['cHigh'] - bp['cLow'])) * (conc - bp['cLow']) + bp['iLow']
-            )
+            return round(((bp['iHigh'] - bp['iLow']) / (bp['cHigh'] - bp['cLow'])) * (conc - bp['cLow']) + bp['iLow'])
     return 500 if conc > 0 else 0
 
 def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
@@ -82,8 +85,11 @@ def get_open_meteo_data(lat, lon):
     w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat_str}&longitude={lon_str}&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index"
     a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat_str}&longitude={lon_str}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
     
-    w_data = fetch_api_data(w_url, "Open-Meteo (Weather)")
-    a_data = fetch_api_data(a_url, "Open-Meteo (AQI)")
+    w_data = fetch_api_data(w_url, "Open-Meteo (Weather)", retries=5, delay=5)
+    
+    time.sleep(2)  # Pause to avoid OM rate limiting
+    
+    a_data = fetch_api_data(a_url, "Open-Meteo (AQI)", retries=5, delay=5)
     
     w_res = w_data.get('current', {}) if w_data else {}
     a_res = a_data.get('current', {}) if a_data else {}
@@ -127,27 +133,23 @@ def get_open_meteo_data(lat, lon):
 def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
     pollutants = gaq_data.get('pollutants', {})
     
-    # Text normalizer to strictly match keys ignoring dots, underscores, and case
     def normalize_key(k):
         return str(k).lower().replace('.', '').replace('_', '').replace(' ', '')
     
     target_key = normalize_key(key_name)
     amt = None
 
-    # Search in Dictionary format
     if isinstance(pollutants, dict):
         for k, v in pollutants.items():
             if normalize_key(k) == target_key:
                 amt = v.get('amount') if isinstance(v, dict) else v
                 break
-    # Search in List format
     elif isinstance(pollutants, list):
         for item in pollutants:
             if normalize_key(item.get('name', '')) == target_key or normalize_key(item.get('id', '')) == target_key:
                 amt = item.get('amount') if isinstance(item, dict) else item
                 break
 
-    # Direct fallback if still not found
     if amt is None:
         for k, v in gaq_data.items():
             if normalize_key(k) == target_key:
@@ -162,7 +164,6 @@ def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
     except (ValueError, TypeError):
         return None
 
-    # ⚠️ FORCE CONVERSION: TWC returns µg/m³, we forcefully divide it to match OM's ppb/ppm
     if factor != 1.0:
         amt = amt / factor
 
@@ -178,7 +179,9 @@ def get_std_data(lat, lon):
     }
     
     wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat_str},{lon_str}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
-    wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)")
+    wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)", retries=5, delay=5)
+    
+    time.sleep(1) # Small pause between TWC calls just to be safe
     
     if wx_data:
         results.update({
@@ -189,7 +192,7 @@ def get_std_data(lat, lon):
         print(f"    ✓ Weather Channel (Wx): OK")
 
     aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat_str},{lon_str}&format=json&language=en-US&scale=EPA&apiKey={WEATHER_CHANNEL_API_KEY}"
-    aqi_data = fetch_api_data(aqi_url, "Weather Channel (AQI)")
+    aqi_data = fetch_api_data(aqi_url, "Weather Channel (AQI)", retries=5, delay=5)
     
     if aqi_data and 'globalairquality' in aqi_data:
         gaq = aqi_data['globalairquality']
@@ -210,7 +213,7 @@ def get_std_data(lat, lon):
     return results
 
 def collect():
-    # 🕒 Exact BD Time
+    # Exact BD Time
     bd_timezone = timezone(timedelta(hours=6))
     now_obj = datetime.now(bd_timezone)
     
@@ -234,7 +237,8 @@ def collect():
         print(f"  ✓ {city} Complete\n")
         
         if idx < 8:
-            time.sleep(5)
+            print("  ⏳ Waiting 10 seconds before next division to avoid API blocks...")
+            time.sleep(10)
 
     df = pd.DataFrame(final_rows)
     file = "app_vs_standard_ml_data.csv"
