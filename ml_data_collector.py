@@ -4,10 +4,6 @@ from datetime import datetime
 import os
 import time
 
-# Excel formatting libraries
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font, Alignment
-
 # API Keys (GitHub Secrets থেকে আসবে)
 WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY", "")
 
@@ -156,57 +152,6 @@ def get_std_data(lat, lon):
     
     return results
 
-def format_excel_file(file_path):
-    """Applies beautiful styling to the Excel file"""
-    try:
-        wb = load_workbook(file_path)
-        ws = wb.active
-
-        # 1. Header Styling (Blue background, White Bold text)
-        header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF")
-        
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-
-        # 2. Adjust Column Widths
-        for col in ws.columns:
-            max_length = 0
-            column = col[0].column_letter
-            for cell in col:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = (max_length + 2)
-            ws.column_dimensions[column].width = adjusted_width
-
-        # 3. Alternate Row Colors based on Date
-        color1 = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-        color2 = PatternFill(start_color="E9EDF4", end_color="E9EDF4", fill_type="solid") # Light blue-gray
-        
-        current_date = None
-        color_toggle = False
-
-        for row in ws.iter_rows(min_row=2):
-            date_val = row[0].value # Column A is Date
-            if date_val != current_date:
-                current_date = date_val
-                color_toggle = not color_toggle
-            
-            fill_color = color1 if color_toggle else color2
-            for cell in row:
-                cell.fill = fill_color
-                cell.alignment = Alignment(horizontal="center")
-
-        wb.save(file_path)
-        print("    ✨ Excel file successfully formatted and colored!")
-    except Exception as e:
-        print(f"    ⚠ Could not apply Excel formatting: {e}")
-
 def collect():
     now_obj = datetime.now()
     date_str = now_obj.strftime("%Y-%m-%d")
@@ -232,20 +177,16 @@ def collect():
             time.sleep(5)
 
     df = pd.DataFrame(final_rows)
-    file = "app_vs_standard_ml_data.xlsx"
+    file = "app_vs_standard_ml_data.csv"
     
-    # Safe Save & Append Logic for Excel
+    # Safe Save & Append Logic for CSV
     if not os.path.isfile(file):
-        df.to_excel(file, index=False, engine='openpyxl')
-        print(f"✅ New Excel file created: {file}")
+        df.to_csv(file, index=False)
+        print(f"✅ New CSV file created: {file}")
     else:
-        existing_df = pd.read_excel(file, engine='openpyxl')
-        combined_df = pd.concat([existing_df, df], ignore_index=True)
-        combined_df.to_excel(file, index=False, engine='openpyxl')
-        print(f"✅ Data safely appended to Excel: {file}")
+        df.to_csv(file, mode='a', header=False, index=False)
+        print(f"✅ Data safely appended to CSV: {file}")
     
-    # Apply styling
-    format_excel_file(file)
     print(f"{'='*60}\n")
 
 if __name__ == "__main__":
