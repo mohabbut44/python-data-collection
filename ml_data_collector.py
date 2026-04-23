@@ -7,6 +7,7 @@ import math
 
 # API Keys
 WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY", "")
+AMBEE_API_KEY = "041abfe46b41ab94f68238e447ee1b87f9198d02c7109b1a310d908791b29d39"
 
 divisions = {
     "Dhaka": {"lat": 23.8103, "lon": 90.4125},
@@ -28,10 +29,10 @@ def safe_round(val, digits=2):
     except (ValueError, TypeError):
         return None
 
-def fetch_api_data(url, api_name, retries=5, delay=5):
+def fetch_api_data(url, api_name, retries=5, delay=5, headers=None):
     for attempt in range(1, retries + 1):
         try:
-            res = requests.get(url, timeout=20)
+            res = requests.get(url, headers=headers, timeout=20)
             if res.status_code == 200:
                 return res.json()
             elif res.status_code == 429:
@@ -129,59 +130,20 @@ def get_open_meteo_data(lat, lon):
         "OM_CO_(ppm)": safe_round(co_ppm)
     }
 
-# --- 100% Bulletproof TWC Extractor ---
-def extract_twc_pollutant(gaq_data, key_name, factor=1.0):
-    pollutants = gaq_data.get('pollutants', {})
-    
-    def normalize_key(k):
-        return str(k).lower().replace('.', '').replace('_', '').replace(' ', '')
-    
-    target_key = normalize_key(key_name)
-    amt = None
-
-    if isinstance(pollutants, dict):
-        for k, v in pollutants.items():
-            if normalize_key(k) == target_key:
-                amt = v.get('amount') if isinstance(v, dict) else v
-                break
-    elif isinstance(pollutants, list):
-        for item in pollutants:
-            if normalize_key(item.get('name', '')) == target_key or normalize_key(item.get('id', '')) == target_key:
-                amt = item.get('amount') if isinstance(item, dict) else item
-                break
-
-    if amt is None:
-        for k, v in gaq_data.items():
-            if normalize_key(k) == target_key:
-                amt = v
-                break
-
-    if amt is None:
-        return None
-
-    try:
-        amt = float(amt)
-    except (ValueError, TypeError):
-        return None
-
-    if factor != 1.0:
-        amt = amt / factor
-
-    return amt
-
 def get_std_data(lat, lon):
     lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
     
     results = {
         "WC_Temp_C": None, "WC_Humidity_%": None, "WC_Pressure_hPa": None, "WC_UV_Index": None,
-        "WC_AQI_(USA)": None, "WC_PM2.5_(µg/m3)": None, "WC_PM10_(µg/m3)": None,
-        "WC_O3_(ppb)": None, "WC_NO2_(ppb)": None, "WC_SO2_(ppb)": None, "WC_CO_(ppm)": None
+        "Ambee_AQI_(USA)": None, "Ambee_PM2.5": None, "Ambee_PM10": None,
+        "Ambee_O3": None, "Ambee_NO2": None, "Ambee_SO2": None, "Ambee_CO": None
     }
     
+    # 1. Weather Channel (Weather Data Only)
     wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat_str},{lon_str}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
     wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)", retries=5, delay=5)
     
-    time.sleep(1) # Small pause between TWC calls just to be safe
+    time.sleep(1) # Small pause just to be safe
     
     if wx_data:
         results.update({
@@ -192,24 +154,30 @@ def get_std_data(lat, lon):
         })
         print(f"    ✓ Weather Channel (Wx): OK")
 
-    aqi_url = f"https://api.weather.com/v3/wx/globalAirQuality?geocode={lat_str},{lon_str}&format=json&language=en-US&scale=EPA&apiKey={WEATHER_CHANNEL_API_KEY}"
-    aqi_data = fetch_api_data(aqi_url, "Weather Channel (AQI)", retries=5, delay=5)
+    # 2. Ambee API (AQI & Pollutants Data Only)
+    ambee_url = f"https://api.ambeedata.com/latest/by-lat-lng?lat={lat_str}&lng={lon_str}"
+    ambee_headers = {
+        "x-api-key": AMBEE_API_KEY,
+        "Content-type": "application/json"
+    }
     
-    if aqi_data and 'globalairquality' in aqi_data:
-        gaq = aqi_data['globalairquality']
+    ambee_data = fetch_api_data(ambee_url, "Ambee (AQI)", retries=5, delay=5, headers=ambee_headers)
+    
+    if ambee_data and 'data' in ambee_data and len(ambee_data['data']) > 0:
+        aqi_info = ambee_data['data'][0]
         
         results.update({
-            "WC_AQI_(USA)": safe_round(gaq.get('airQualityIndex')),
-            "WC_PM2.5_(µg/m3)": safe_round(extract_twc_pollutant(gaq, 'pm25')),
-            "WC_PM10_(µg/m3)": safe_round(extract_twc_pollutant(gaq, 'pm10')),
-            "WC_O3_(ppb)": safe_round(extract_twc_pollutant(gaq, 'o3', 1.96)),
-            "WC_NO2_(ppb)": safe_round(extract_twc_pollutant(gaq, 'no2', 1.88)),
-            "WC_SO2_(ppb)": safe_round(extract_twc_pollutant(gaq, 'so2', 2.62)),
-            "WC_CO_(ppm)": safe_round(extract_twc_pollutant(gaq, 'co', 1145))
+            "Ambee_AQI_(USA)": safe_round(aqi_info.get('AQI')),
+            "Ambee_PM2.5": safe_round(aqi_info.get('PM25') or aqi_info.get('pm25')),
+            "Ambee_PM10": safe_round(aqi_info.get('PM10') or aqi_info.get('pm10')),
+            "Ambee_O3": safe_round(aqi_info.get('OZONE') or aqi_info.get('O3') or aqi_info.get('o3')),
+            "Ambee_NO2": safe_round(aqi_info.get('NO2') or aqi_info.get('no2')),
+            "Ambee_SO2": safe_round(aqi_info.get('SO2') or aqi_info.get('so2')),
+            "Ambee_CO": safe_round(aqi_info.get('CO') or aqi_info.get('co'))
         })
-        print(f"    ✓ Weather Channel (AQI): Extracted Pollutants Successfully")
+        print(f"    ✓ Ambee (AQI): Extracted Pollutants Successfully")
     else:
-        print(f"    ⚠ Weather Channel (AQI): Missing 'globalairquality' data object")
+        print(f"    ⚠ Ambee (AQI): Missing 'data' object or empty response")
         
     return results
 
