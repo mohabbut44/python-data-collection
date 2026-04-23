@@ -28,7 +28,7 @@ jobs:
         env:
           AMBEE_API_KEY: ${{ secrets.AMBEE_API_KEY }}
           WEATHER_CHANNEL_API_KEY: ${{ secrets.WEATHER_CHANNEL_API_KEY }}
-        run: python main.py
+        run: python ml_data_collector.py
 
       - name: Commit and push changes
         run: |
