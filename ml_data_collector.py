@@ -7,9 +7,10 @@ import math
 
 # API Keys
 WEATHER_CHANNEL_API_KEY = os.getenv("WEATHER_CHANNEL_API_KEY", "")
-AMBEE_API_KEY = "041abfe46b41ab94f68238e447ee1b87f9198d02c7109b1a310d908791b29d39"
+# আপনার Ambee API Key এখানে দেওয়া আছে, তবে এটি লিমিট ক্রস করলে ডেটা ফাঁকা আসতে পারে
+AMBEE_API_KEY = os.getenv("AMBEE_API_KEY", "041abfe46b41ab94f68238e447ee1b87f9198d02c7109b1a310d908791b29d39")
 
-# ✅ Fixed: সব API-তে একই coordinate যাবে (4 decimal precision)
+# সব API-তে একই coordinate যাবে (4 decimal precision)
 divisions = {
     "Dhaka": {"lat": 23.8103, "lon": 90.4125},
     "Chattogram": {"lat": 22.3569, "lon": 91.7832},
@@ -23,7 +24,7 @@ divisions = {
 
 # --- Error Handling Helper ---
 def safe_round(val, digits=2):
-    if val is None:
+    if val is None or str(val).strip() == "":
         return None
     try:
         return round(float(val), digits)
@@ -33,7 +34,19 @@ def safe_round(val, digits=2):
 def fetch_api_data(url, api_name, retries=5, delay=5, headers=None):
     for attempt in range(1, retries + 1):
         try:
-            res = requests.get(url, headers=headers, timeout=20)
+            res = requests.get(url, headers=headers, timeout=30)
+            
+            # API Error Check inside 200 OK (specifically for Ambee)
+            try:
+                data = res.json()
+                if isinstance(data, dict) and "message" in data:
+                    msg = str(data["message"]).lower()
+                    if msg in ["limit exceeded", "authorization failed", "forbidden", "invalid token"]:
+                        print(f"      ❌ {api_name} API Error: {data['message']}")
+                        return data # Return it so we can break the loop in the main function
+            except:
+                pass
+
             if res.status_code == 200:
                 return res.json()
             elif res.status_code == 429:
@@ -80,7 +93,7 @@ def calculate_usa_aqi(pm25, pm10, o3, no2, so2, co):
     ]
     return max(indices)
 
-# ✅ Open-Meteo থেকে Weather + AQI ডেটা সংগ্রহ (একই location)
+# Open-Meteo Data Fetch
 def get_open_meteo_data(lat, lon):
     lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
     
@@ -101,7 +114,6 @@ def get_open_meteo_data(lat, lon):
     pm10 = a_res.get('pm10')
     pm2_5 = a_res.get('pm2_5')
     
-    # ✅ Unit conversion (µg/m³ → ppb/ppm) - Open-Meteo থেকে আসা ডেটা convert করা হচ্ছে
     o3_ppb = (o3 / 1.96) if o3 is not None else 0
     no2_ppb = (no2 / 1.88) if no2 is not None else 0
     so2_ppb = (so2 / 2.62) if so2 is not None else 0
@@ -130,14 +142,14 @@ def get_open_meteo_data(lat, lon):
         "OM_CO_(ppm)": safe_round(co_ppm)
     }
 
-# ✅ Ambee থেকে কী নাম ধরা হোক না কেন, সঠিক ভ্যালু পাবে
+# Ambee Value Extractor
 def get_ambee_val(obj, possible_keys):
     for k in possible_keys:
         if k in obj and obj[k] is not None:
             return obj[k]
     return None
 
-# ✅ Weather Channel (Weather) + Ambee (AQI) - একই location থেকে
+# Weather Channel + Ambee Data Fetch
 def get_std_data(lat, lon):
     lat_str, lon_str = f"{lat:.4f}", f"{lon:.4f}"
     
@@ -147,9 +159,9 @@ def get_std_data(lat, lon):
         "Ambee_O3": None, "Ambee_NO2": None, "Ambee_SO2": None, "Ambee_CO": None
     }
     
-    # 1. Weather Channel (Weather Data Only)
+    # 1. Weather Channel
     wx_url = f"https://api.weather.com/v3/wx/observations/current?geocode={lat_str},{lon_str}&format=json&units=m&language=en-US&apiKey={WEATHER_CHANNEL_API_KEY}"
-    wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)", retries=5, delay=5)
+    wx_data = fetch_api_data(wx_url, "Weather Channel (Wx)", retries=3, delay=5)
     time.sleep(1) 
     
     if wx_data:
@@ -159,49 +171,61 @@ def get_std_data(lat, lon):
             "WC_Pressure_hPa": safe_round(wx_data.get('pressureMeanSeaLevel')),
             "WC_UV_Index": safe_round(wx_data.get('uvIndex'))
         })
-        print(f"    ✓ Weather Channel (Wx): OK (Lat: {lat_str}, Lon: {lon_str})")
+        print(f"    ✓ Weather Channel: OK (Lat: {lat_str}, Lon: {lon_str})")
 
-    # 2. Ambee API (AQI & Pollutants Data Only) - একই location
+    # 2. Ambee API (AQI & Pollutants) with custom Empty-Data Retry Logic
     ambee_url = f"https://api.ambeedata.com/latest/by-lat-lng?lat={lat_str}&lng={lon_str}"
     ambee_headers = {
         "x-api-key": AMBEE_API_KEY,
         "Content-type": "application/json"
     }
     
-    ambee_data = fetch_api_data(ambee_url, "Ambee (AQI)", retries=3, delay=5, headers=ambee_headers)
+    aqi_info = None
     
-    if ambee_data:
-        aqi_source = ambee_data.get('data') or ambee_data.get('stations')
+    # 3 বার ট্রাই করবে, যদি ডেটা ফাঁকা আসে
+    for attempt in range(1, 4):
+        ambee_data = fetch_api_data(ambee_url, "Ambee (AQI)", retries=2, delay=3, headers=ambee_headers)
         
-        if aqi_source:
-            if isinstance(aqi_source, list) and len(aqi_source) > 0:
-                aqi_info = aqi_source[0]
-            elif isinstance(aqi_source, dict):
-                aqi_info = aqi_source
-            else:
-                aqi_info = None
-                
+        if ambee_data:
+            # Check if API token is blocked/expired inside a 200 response
+            if ambee_data.get("message") in ["Authorization Failed", "Limit Exceeded", "Forbidden", "Invalid Token"]:
+                print(f"    ❌ Ambee API blocked/expired. Reason: {ambee_data.get('message')}")
+                break
+
+            aqi_source = ambee_data.get('data') or ambee_data.get('stations')
+            
+            if aqi_source:
+                if isinstance(aqi_source, list) and len(aqi_source) > 0:
+                    aqi_info = aqi_source[0]
+                elif isinstance(aqi_source, dict):
+                    aqi_info = aqi_source
+            
             if aqi_info:
-                results.update({
-                    "Ambee_AQI_(USA)": safe_round(get_ambee_val(aqi_info, ['AQI', 'aqi', 'airQualityIndex'])),
-                    "Ambee_PM2.5": safe_round(get_ambee_val(aqi_info, ['PM25', 'pm25', 'PM2.5', 'pm2.5'])),
-                    "Ambee_PM10": safe_round(get_ambee_val(aqi_info, ['PM10', 'pm10'])),
-                    "Ambee_O3": safe_round(get_ambee_val(aqi_info, ['OZONE', 'O3', 'ozone', 'o3'])),
-                    "Ambee_NO2": safe_round(get_ambee_val(aqi_info, ['NO2', 'no2'])),
-                    "Ambee_SO2": safe_round(get_ambee_val(aqi_info, ['SO2', 'so2'])),
-                    "Ambee_CO": safe_round(get_ambee_val(aqi_info, ['CO', 'co']))
-                })
                 print(f"    ✓ Ambee (AQI): OK (Lat: {lat_str}, Lon: {lon_str})")
+                break # Success! লুপ থেকে বের হয়ে যাবে
             else:
-                print(f"    ⚠ Ambee (AQI): Data array is empty.")
+                msg = ambee_data.get('message', 'No specific error')
+                print(f"    ⚠ Ambee (AQI) Attempt {attempt}: Data is empty. Server message: {msg}")
+                time.sleep(3) # ফাঁকা আসলে ৩ সেকেন্ড ওয়েট করে আবার চেষ্টা করবে
         else:
-            print(f"    ⚠ Ambee (AQI): Missing 'data' object. Keys: {list(ambee_data.keys())}")
+            time.sleep(3)
+
+    if aqi_info:
+        results.update({
+            "Ambee_AQI_(USA)": safe_round(get_ambee_val(aqi_info, ['AQI', 'aqi', 'airQualityIndex'])),
+            "Ambee_PM2.5": safe_round(get_ambee_val(aqi_info, ['PM25', 'pm25', 'PM2.5', 'pm2.5'])),
+            "Ambee_PM10": safe_round(get_ambee_val(aqi_info, ['PM10', 'pm10'])),
+            "Ambee_O3": safe_round(get_ambee_val(aqi_info, ['OZONE', 'O3', 'ozone', 'o3'])),
+            "Ambee_NO2": safe_round(get_ambee_val(aqi_info, ['NO2', 'no2'])),
+            "Ambee_SO2": safe_round(get_ambee_val(aqi_info, ['SO2', 'so2'])),
+            "Ambee_CO": safe_round(get_ambee_val(aqi_info, ['CO', 'co']))
+        })
     else:
-        print(f"    ⚠ Ambee (AQI): Failed to fetch data.")
+        print(f"    ❌ Ambee (AQI): Failed to fetch valid data after multiple attempts. Leaving columns blank.")
         
     return results
 
-# ✅ Main Collection Function
+# Main Collection Function
 def collect():
     bd_timezone = timezone(timedelta(hours=6))
     now_obj = datetime.now(bd_timezone)
@@ -218,7 +242,6 @@ def collect():
     for idx, (city, coord) in enumerate(divisions.items(), 1):
         print(f"[{idx}/8] Processing {city}...")
         
-        # ✅ সব API একই location থেকে ডেটা নিবে
         row = {"Date": date_str, "Time": time_str, "Division": city}
         row.update(get_open_meteo_data(coord['lat'], coord['lon']))
         row.update(get_std_data(coord['lat'], coord['lon']))
@@ -243,7 +266,7 @@ def collect():
     print(f"{'='*60}\n")
 
 if __name__ == "__main__":
-    print("🚀 Starting robust data collection via GitHub Actions...")
+    print("🚀 Starting robust data collection...")
     try:
         collect()
     except Exception as e:
